@@ -26,6 +26,9 @@ enum AccountRole: String, Codable, CaseIterable {
 struct Me: Codable, Identifiable {
     let id: String
     let email: String
+    let firstName: String?
+    let lastName: String?
+    let phone: String?
     let isPremium: Bool
     let planningCount: Int?
     let role: AccountRole
@@ -170,6 +173,21 @@ struct Player: Decodable, Identifiable {
         self.phone = phone
         self.teamId = teamId
     }
+}
+
+struct PlayerInvitationStatusResponse: Decodable {
+    let playerId: String
+    let status: String
+    let lastInvitationAt: String?
+    let invitationId: String?
+}
+
+struct PlayerInviteResponse: Decodable {
+    let status: String
+    let invitationId: String?
+    let sentAt: String?
+    let expiresAt: String?
+    let inviteUrl: String?
 }
 
 struct Training: Codable, Identifiable {

@@ -6,6 +6,9 @@ struct AuthResponse: Codable {
     let me: Me?
     let id: String?
     let email: String?
+    let firstName: String?
+    let lastName: String?
+    let phone: String?
     let isPremium: Bool?
     let planningCount: Int?
     let role: AccountRole?
@@ -21,6 +24,9 @@ struct AuthResponse: Codable {
         return Me(
             id: id,
             email: email,
+            firstName: firstName,
+            lastName: lastName,
+            phone: phone,
             isPremium: isPremium ?? false,
             planningCount: planningCount,
             role: role,
@@ -98,6 +104,21 @@ final class IzifootAPI {
         try await client.get(APIRoutes.me, responseType: Me.self)
     }
 
+    func updateMeProfile(firstName: String, lastName: String, email: String, phone: String) async throws -> Me {
+        struct UpdateProfilePayload: Encodable {
+            let firstName: String
+            let lastName: String
+            let email: String
+            let phone: String
+        }
+
+        return try await client.put(
+            APIRoutes.meProfile,
+            body: UpdateProfilePayload(firstName: firstName, lastName: lastName, email: email, phone: phone),
+            responseType: Me.self
+        )
+    }
+
     func myClub() async throws -> Club {
         try await client.get(APIRoutes.Clubs.me, responseType: Club.self)
     }
@@ -158,6 +179,19 @@ final class IzifootAPI {
 
     func player(id: String) async throws -> Player {
         try await client.get(APIRoutes.Players.byID(id), responseType: Player.self)
+    }
+
+    func playerInvitationStatus(id: String) async throws -> PlayerInvitationStatusResponse {
+        try await client.get(APIRoutes.Players.invitationStatus(id), responseType: PlayerInvitationStatusResponse.self)
+    }
+
+    func invitePlayer(id: String) async throws -> PlayerInviteResponse {
+        struct EmptyPayload: Encodable {}
+        return try await client.post(
+            APIRoutes.Players.invite(id),
+            body: EmptyPayload(),
+            responseType: PlayerInviteResponse.self
+        )
     }
 
     func createPlayer(
