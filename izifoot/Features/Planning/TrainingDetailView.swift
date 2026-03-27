@@ -37,6 +37,7 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var isSavingDrills = false
     @Published private(set) var isSavingRoles = false
     @Published private(set) var isUpdatingStatus = false
+    @Published private(set) var isDeleting = false
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
@@ -51,10 +52,10 @@ final class TrainingDetailViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            async let playersTask = api.players()
-            async let attendanceTask = api.attendanceBySession(type: "TRAINING", sessionID: training.id)
+            async let playersTask = api.allPlayers()
+            async let attendanceTask = api.allAttendanceBySession(type: "TRAINING", sessionID: training.id)
             async let trainingDrillsTask = api.trainingDrills(trainingID: training.id)
-            async let drillsTask = api.drills()
+            async let drillsTask = api.allDrills()
             async let rolesTask = api.trainingRoles(trainingID: training.id)
 
             players = try await playersTask.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -84,37 +85,46 @@ final class TrainingDetailViewModel: ObservableObject {
         }
     }
 
-    func savePresentPlayerIDs(_ selectedPlayerIDs: Set<String>, availablePlayers: [Player]) async {
-        let previousAttendance = attendance
-        let previousByPlayerID = Dictionary(uniqueKeysWithValues: attendance.map { ($0.playerId, $0.present) })
-        let allPlayerIDs = Set(availablePlayers.map(\.id))
-        let changedPlayerIDs = allPlayerIDs.filter { (previousByPlayerID[$0] ?? false) != selectedPlayerIDs.contains($0) }
-
-        guard !changedPlayerIDs.isEmpty else { return }
-
-        isSavingAttendance = true
-        attendance = mergedAttendance(from: previousAttendance, selectedPlayerIDs: selectedPlayerIDs, availablePlayers: availablePlayers)
+    func deleteTraining() async -> Bool {
+        isDeleting = true
+        defer { isDeleting = false }
 
         do {
-            for playerID in changedPlayerIDs {
-                try await api.setAttendance(
-                    sessionType: "TRAINING",
-                    sessionID: training.id,
-                    playerID: playerID,
-                    present: selectedPlayerIDs.contains(playerID)
-                )
-            }
+            try await api.deleteTraining(id: training.id)
             errorMessage = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func savePresentPlayerIDs(_ selectedPlayerIDs: Set<String>, availablePlayers: [Player]) async -> String? {
+        let previousAttendance = attendance
+        let payloadPlayerIDs = Array(selectedPlayerIDs).sorted()
+
+        isSavingAttendance = true
+        defer { isSavingAttendance = false }
+        attendance = mergedAttendance(from: previousAttendance, selectedPlayerIDs: selectedPlayerIDs, availablePlayers: players)
+
+        do {
+            _ = try await api.updateTrainingAttendance(
+                trainingID: training.id,
+                playerIDs: payloadPlayerIDs
+            )
+            let refreshedAttendance = try await api.allAttendanceBySession(type: "TRAINING", sessionID: training.id)
+            attendance = mergedAttendance(from: refreshedAttendance, selectedPlayerIDs: selectedPlayerIDs, availablePlayers: players)
+            errorMessage = nil
+            return nil
         } catch {
             attendance = previousAttendance
             errorMessage = error.localizedDescription
+            return error.localizedDescription
         }
-
-        isSavingAttendance = false
     }
 
-    func addDrill(drillID: String) async {
-        guard !trainingDrills.contains(where: { $0.drillId == drillID }) else { return }
+    func addDrill(drillID: String) async -> Bool {
+        guard !trainingDrills.contains(where: { $0.drillId == drillID }) else { return true }
         isSavingDrills = true
         defer { isSavingDrills = false }
 
@@ -124,8 +134,10 @@ final class TrainingDetailViewModel: ObservableObject {
                 lhs.order < rhs.order || (lhs.order == rhs.order && lhs.id < rhs.id)
             }
             errorMessage = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -145,26 +157,29 @@ final class TrainingDetailViewModel: ObservableObject {
         isSavingDrills = false
     }
 
-    func moveDrill(trainingDrillID: String, direction: Int) async {
-        guard let currentIndex = trainingDrills.firstIndex(where: { $0.id == trainingDrillID }) else { return }
-        let newIndex = currentIndex + direction
-        guard trainingDrills.indices.contains(newIndex) else { return }
-
+    func moveDrills(from sourceOffsets: IndexSet, to destination: Int) async {
         let previous = trainingDrills
         var reordered = trainingDrills
-        let moved = reordered.remove(at: currentIndex)
-        reordered.insert(moved, at: newIndex)
+        reordered.move(fromOffsets: sourceOffsets, toOffset: destination)
+        guard reordered.map(\.id) != previous.map(\.id) else { return }
         reordered = reordered.enumerated().map { index, item in
-            TrainingDrillProxy(id: item.id, trainingId: item.trainingId, drillId: item.drillId, order: index).asTrainingDrill
+            TrainingDrill(id: item.id, trainingId: item.trainingId, drillId: item.drillId, order: index)
         }
         trainingDrills = reordered
         isSavingDrills = true
 
         do {
-            let changed = zip(previous, reordered).filter { $0.order != $1.order }.map(\.1)
+            let previousOrderByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0.order) })
+            let changed = reordered.filter { item in
+                previousOrderByID[item.id] != item.order
+            }
             for item in changed {
                 _ = try await api.updateTrainingDrillOrder(trainingID: training.id, trainingDrillID: item.id, order: item.order)
             }
+            let reloaded = try await api.trainingDrills(trainingID: training.id).sorted { lhs, rhs in
+                lhs.order < rhs.order || (lhs.order == rhs.order && lhs.id < rhs.id)
+            }
+            trainingDrills = reloaded
             errorMessage = nil
         } catch {
             trainingDrills = previous
@@ -174,7 +189,16 @@ final class TrainingDetailViewModel: ObservableObject {
         isSavingDrills = false
     }
 
-    func saveRoleEntries(_ entries: [TrainingRoleEntry]) async {
+    func moveDrill(trainingDrillID: String, before destinationTrainingDrillID: String) async {
+        guard let currentIndex = trainingDrills.firstIndex(where: { $0.id == trainingDrillID }) else { return }
+        guard let destinationIndex = trainingDrills.firstIndex(where: { $0.id == destinationTrainingDrillID }) else { return }
+        guard currentIndex != destinationIndex else { return }
+
+        let targetIndex = currentIndex < destinationIndex ? destinationIndex + 1 : destinationIndex
+        await moveDrills(from: IndexSet(integer: currentIndex), to: targetIndex)
+    }
+
+    func saveRoleEntries(_ entries: [TrainingRoleEntry]) async -> Bool {
         isSavingRoles = true
         defer { isSavingRoles = false }
 
@@ -187,8 +211,10 @@ final class TrainingDetailViewModel: ObservableObject {
                 TrainingRoleEntry(id: $0.id, role: $0.role, playerID: $0.playerId)
             }
             errorMessage = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -227,27 +253,37 @@ final class TrainingDetailViewModel: ObservableObject {
 struct TrainingDetailView: View {
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var teamScopeStore: TeamScopeStore
+    @Environment(\.dismiss) private var dismiss
 
     @StateObject private var viewModel: TrainingDetailViewModel
     @State private var isAttendanceSheetPresented = false
+    @State private var attendanceDraftPlayerIDs: Set<String> = []
     @State private var isExercisesSheetPresented = false
+    @State private var selectedDrillID: String?
+    @State private var pendingDrillIDToAdd: String?
     @State private var roleEditor: RoleEditorState?
+    @State private var pendingRoleSaveRequest: PendingRoleSaveRequest?
+    @State private var isDeleteConfirmationPresented = false
+    @State private var bannerMessage: String?
+    @State private var bannerToken = UUID()
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
     }
 
     var body: some View {
-        ScrollView {
+        List {
             VStack(alignment: .leading, spacing: 20) {
-                TrainingHeaderCard(
-                    training: viewModel.training,
-                    writable: writable,
-                    isUpdatingStatus: viewModel.isUpdatingStatus
-                ) { cancelled in
-                    Task {
-                        await viewModel.setCancelled(cancelled)
-                    }
+                Text(DateFormatters.displayDateOnly(viewModel.training.date))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, -8)
+
+                if isCancelled {
+                    TrainingStatusBanner(
+                        title: "Entraînement annulé",
+                        message: "Cette séance est actuellement marquée comme annulée."
+                    )
                 }
 
                 PlayersAttendanceCard(
@@ -256,6 +292,7 @@ struct TrainingDetailView: View {
                     writable: writable,
                     isSaving: viewModel.isSavingAttendance
                 ) {
+                    attendanceDraftPlayerIDs = presentPlayerIDs
                     isAttendanceSheetPresented = true
                 }
 
@@ -264,18 +301,23 @@ struct TrainingDetailView: View {
                     drillByID: drillByID,
                     writable: writable,
                     isSaving: viewModel.isSavingDrills,
-                    onAdd: {
+                    onManage: {
                         isExercisesSheetPresented = true
                     },
-                    onMove: { trainingDrillID, direction in
+                    onMove: { sourceOffsets, destination in
                         Task {
-                            await viewModel.moveDrill(trainingDrillID: trainingDrillID, direction: direction)
+                            await viewModel.moveDrills(from: sourceOffsets, to: destination)
                         }
                     },
-                    onRemove: { trainingDrillID in
+                    onRemove: { trainingDrillIDs in
                         Task {
-                            await viewModel.removeDrill(trainingDrillID: trainingDrillID)
+                            for trainingDrillID in trainingDrillIDs {
+                                await viewModel.removeDrill(trainingDrillID: trainingDrillID)
+                            }
                         }
+                    },
+                    onOpen: { drillID in
+                        selectedDrillID = drillID
                     }
                 )
 
@@ -292,21 +334,60 @@ struct TrainingDetailView: View {
                     },
                     onDelete: { roleID in
                         Task {
-                            await viewModel.saveRoleEntries(viewModel.roleEntries.filter { $0.id != roleID })
+                            _ = await viewModel.saveRoleEntries(viewModel.roleEntries.filter { $0.id != roleID })
                         }
                     }
                 )
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 20)
+            .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
         }
-        .overlay {
-            if viewModel.isLoading {
-                ProgressView("Chargement")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .safeAreaInset(edge: .top) {
+            if let bannerMessage {
+                ErrorBanner(message: bannerMessage) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        self.bannerMessage = nil
+                    }
+                    viewModel.errorMessage = nil
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .navigationTitle("Entraînement")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            if viewModel.isLoading {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            if writable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(viewModel.training.status == "CANCELLED" ? "Réactiver" : "Annuler") {
+                            Task {
+                                await viewModel.setCancelled(viewModel.training.status != "CANCELLED")
+                            }
+                        }
+                        .disabled(viewModel.isUpdatingStatus || viewModel.isDeleting)
+
+                        Button("Supprimer", role: .destructive) {
+                            isDeleteConfirmationPresented = true
+                        }
+                        .disabled(viewModel.isDeleting || viewModel.isUpdatingStatus)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
         .task {
             await viewModel.load()
         }
@@ -316,11 +397,10 @@ struct TrainingDetailView: View {
         .sheet(isPresented: $isAttendanceSheetPresented) {
             AttendanceSelectionSheet(
                 players: filteredPlayers,
-                initiallySelectedPlayerIDs: presentPlayerIDs,
+                selectedPlayerIDs: $attendanceDraftPlayerIDs,
                 isSaving: viewModel.isSavingAttendance
-            ) { selection in
-                await viewModel.savePresentPlayerIDs(selection, availablePlayers: filteredPlayers)
-                isAttendanceSheetPresented = false
+            ) {
+                await viewModel.savePresentPlayerIDs(attendanceDraftPlayerIDs, availablePlayers: filteredPlayers)
             }
             .presentationDetents([.large])
         }
@@ -330,7 +410,7 @@ struct TrainingDetailView: View {
                 selectedDrillIDs: Set(viewModel.trainingDrills.map(\.drillId)),
                 isSaving: viewModel.isSavingDrills
             ) { drillID in
-                await viewModel.addDrill(drillID: drillID)
+                pendingDrillIDToAdd = drillID
             }
             .presentationDetents([.large])
         }
@@ -342,26 +422,72 @@ struct TrainingDetailView: View {
                 playerByID: playerByID,
                 isSaving: viewModel.isSavingRoles
             ) { updatedEntry in
-                var nextRoles = viewModel.roleEntries
-                if editor.mode == .edit {
-                    if let index = nextRoles.firstIndex(where: { $0.id == updatedEntry.id }) {
-                        nextRoles[index] = updatedEntry
-                    }
-                } else {
-                    nextRoles.append(updatedEntry)
-                }
-                await viewModel.saveRoleEntries(nextRoles)
-                roleEditor = nil
+                pendingRoleSaveRequest = PendingRoleSaveRequest(editor: editor, entry: updatedEntry)
             }
             .presentationDetents([.medium])
         }
-        .alert("Erreur", isPresented: Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { _ in viewModel.errorMessage = nil }
-        )) {
-            Button("OK", role: .cancel) {}
+        .confirmationDialog(
+            "Supprimer cet entraînement ?",
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Supprimer", role: .destructive) {
+                Task {
+                    let deleted = await viewModel.deleteTraining()
+                    if deleted {
+                        dismiss()
+                    }
+                }
+            }
+            Button("Annuler", role: .cancel) {}
         } message: {
-            Text(viewModel.errorMessage ?? "")
+            Text("Cette action est définitive.")
+        }
+        .task(id: pendingDrillIDToAdd) {
+            guard let pendingDrillIDToAdd else { return }
+            let didAdd = await viewModel.addDrill(drillID: pendingDrillIDToAdd)
+            if didAdd {
+                isExercisesSheetPresented = false
+            }
+            self.pendingDrillIDToAdd = nil
+        }
+        .task(id: pendingRoleSaveRequest?.id) {
+            guard let pendingRoleSaveRequest else { return }
+            var nextRoles = viewModel.roleEntries
+            if pendingRoleSaveRequest.editor.mode == .edit {
+                if let index = nextRoles.firstIndex(where: { $0.id == pendingRoleSaveRequest.entry.id }) {
+                    nextRoles[index] = pendingRoleSaveRequest.entry
+                }
+            } else {
+                nextRoles.append(pendingRoleSaveRequest.entry)
+            }
+
+            let didSave = await viewModel.saveRoleEntries(nextRoles)
+            if didSave {
+                roleEditor = nil
+            }
+            self.pendingRoleSaveRequest = nil
+        }
+        .navigationDestination(item: $selectedDrillID) { drillID in
+            DrillDetailView(drillID: drillID)
+        }
+        .onChange(of: viewModel.errorMessage) { _, newValue in
+            guard let newValue, !newValue.isEmpty else { return }
+            let token = UUID()
+            bannerToken = token
+            withAnimation(.easeInOut(duration: 0.2)) {
+                bannerMessage = newValue
+            }
+
+            Task {
+                try? await Task.sleep(for: .seconds(4))
+                guard bannerToken == token else { return }
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        bannerMessage = nil
+                    }
+                }
+            }
         }
     }
 
@@ -389,6 +515,10 @@ struct TrainingDetailView: View {
 
     private var presentPlayerIDs: Set<String> {
         Set(viewModel.attendance.filter(\.present).map(\.playerId))
+    }
+
+    private var isCancelled: Bool {
+        viewModel.training.status?.uppercased() == "CANCELLED"
     }
 
     private var presentPlayers: [Player] {
@@ -422,44 +552,6 @@ struct TrainingDetailView: View {
     }
 }
 
-private struct TrainingHeaderCard: View {
-    let training: Training
-    let writable: Bool
-    let isUpdatingStatus: Bool
-    let onSetCancelled: (Bool) -> Void
-
-    var body: some View {
-        DetailCard(title: "Informations") {
-            LabeledContent("Date", value: DateFormatters.display(training.date))
-            LabeledContent("Statut", value: statusLabel)
-            if let teamID = training.teamId {
-                LabeledContent("Équipe", value: teamID)
-            }
-
-            if writable {
-                Button(training.status == "CANCELLED" ? "Réactiver la séance" : "Annuler la séance") {
-                    onSetCancelled(training.status != "CANCELLED")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isUpdatingStatus)
-            }
-        }
-    }
-
-    private var statusLabel: String {
-        switch training.status {
-        case "CANCELLED":
-            return "Annulé"
-        case "PLANNED", "PLANIFIED":
-            return "Planifié"
-        case let value?:
-            return value
-        case nil:
-            return "-"
-        }
-    }
-}
-
 private struct PlayersAttendanceCard: View {
     let players: [Player]
     let presentPlayerIDs: Set<String>
@@ -468,13 +560,30 @@ private struct PlayersAttendanceCard: View {
     let onManage: () -> Void
 
     var body: some View {
-        DetailCard(title: "Joueurs") {
-            Text("\(presentPlayers.count) présent(s) sur \(players.count)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        DetailCard {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                HStack(spacing: 8) {
+                    SectionHeaderLabel(title: "Joueurs", systemImage: "person.2")
+                    Text("\(presentPlayers.count)/\(players.count)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if writable {
+                    Button("Ajouter") {
+                        onManage()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSaving)
+                }
+            }
 
             if presentPlayers.isEmpty {
-                Text("Aucun joueur présent sélectionné.")
+                Text("Aucun joueur pour le moment")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -493,12 +602,6 @@ private struct PlayersAttendanceCard: View {
                     .padding(.vertical, 4)
                 }
             }
-
-            Button("Choisir les présents") {
-                onManage()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!writable || isSaving)
         }
     }
 
@@ -516,84 +619,81 @@ private struct ExercisesCard: View {
     let drillByID: [String: Drill]
     let writable: Bool
     let isSaving: Bool
-    let onAdd: () -> Void
-    let onMove: (String, Int) -> Void
-    let onRemove: (String) -> Void
+    let onManage: () -> Void
+    let onMove: (IndexSet, Int) -> Void
+    let onRemove: ([String]) -> Void
+    let onOpen: (String) -> Void
 
     var body: some View {
-        DetailCard(title: "Exercices") {
+        DetailCard {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                SectionHeaderLabel(title: "Exercices", systemImage: "figure.run")
+                Spacer()
+
+                if writable {
+                    Button("Modifier") {
+                        onManage()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSaving)
+                }
+            }
+
             if trainingDrills.isEmpty {
                 Text("Aucun exercice associé à cette séance.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(trainingDrills.enumerated()), id: \.element.id) { index, item in
-                    let drill = drillByID[item.drillId]
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 12) {
-                            Text("\(index + 1)")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 24)
-
-                            VStack(alignment: .leading, spacing: 6) {
+                List {
+                    ForEach(trainingDrills) { item in
+                        let drill = drillByID[item.drillId]
+                        Button {
+                            onOpen(item.drillId)
+                        } label: {
+                            HStack(spacing: 12) {
                                 Text(drill?.title ?? "Exercice")
                                     .font(.body.weight(.medium))
-                                Text(exerciseSubtitle(for: drill))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-                        }
-
-                        if writable {
-                            HStack(spacing: 8) {
-                                Button {
-                                    onMove(item.id, -1)
-                                } label: {
-                                    Image(systemName: "arrow.up")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(index == 0 || isSaving)
-
-                                Button {
-                                    onMove(item.id, 1)
-                                } label: {
-                                    Image(systemName: "arrow.down")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(index == trainingDrills.count - 1 || isSaving)
+                                    .foregroundStyle(.primary)
 
                                 Spacer()
 
-                                Button("Retirer", role: .destructive) {
-                                    onRemove(item.id)
+                                if writable {
+                                    Image(systemName: "line.3.horizontal")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(isSaving)
                             }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color(uiColor: .tertiarySystemBackground))
+                            )
                         }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
-                    .padding(.vertical, 4)
+                    .onMove(perform: writable && !isSaving ? onMove : nil)
+                    .onDelete { indexSet in
+                        guard writable, !isSaving else { return }
+                        let ids = indexSet.map { trainingDrills[$0].id }
+                        onRemove(ids)
+                    }
                 }
-            }
-
-            if writable {
-                Button("Ajouter / gérer les exercices") {
-                    onAdd()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSaving)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .scrollDisabled(true)
+                .scrollClipDisabled()
+                .contentMargins(.vertical, 0, for: .scrollContent)
+                .frame(height: min(CGFloat(trainingDrills.count) * 52, 360))
             }
         }
-    }
-
-    private func exerciseSubtitle(for drill: Drill?) -> String {
-        guard let drill else { return "Exercice indisponible" }
-        return [drill.category, "\(drill.duration) min", drill.players]
-            .filter { !$0.isEmpty }
-            .joined(separator: " • ")
     }
 }
 
@@ -607,7 +707,22 @@ private struct RolesCard: View {
     let onDelete: (String) -> Void
 
     var body: some View {
-        DetailCard(title: "Rôles") {
+        DetailCard {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                SectionHeaderLabel(title: "Rôles", systemImage: "person.crop.circle.badge.checkmark")
+                Spacer()
+
+                if writable {
+                    Button("Ajouter") {
+                        onAdd()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSaving)
+                }
+            }
+
             if roles.isEmpty {
                 Text("Aucun rôle attribué pour cette séance.")
                     .font(.subheadline)
@@ -648,14 +763,22 @@ private struct RolesCard: View {
                     .padding(.vertical, 4)
                 }
             }
+        }
+    }
+}
 
-            if writable {
-                Button("Ajouter un rôle") {
-                    onAdd()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSaving)
-            }
+private struct SectionHeaderLabel: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label {
+            Text(title)
+                        .font(.headline)
+        } icon: {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -664,76 +787,113 @@ private struct AttendanceSelectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let players: [Player]
-    let initiallySelectedPlayerIDs: Set<String>
+    @Binding var selectedPlayerIDs: Set<String>
     let isSaving: Bool
-    let onSave: (Set<String>) async -> Void
+    let onSave: () async -> String?
 
-    @State private var selectedPlayerIDs: Set<String>
+    @State private var sheetErrorMessage: String?
+    @State private var isSubmitting = false
+    @State private var searchText = ""
 
     init(
         players: [Player],
-        initiallySelectedPlayerIDs: Set<String>,
+        selectedPlayerIDs: Binding<Set<String>>,
         isSaving: Bool,
-        onSave: @escaping (Set<String>) async -> Void
+        onSave: @escaping () async -> String?
     ) {
         self.players = players
-        self.initiallySelectedPlayerIDs = initiallySelectedPlayerIDs
+        self._selectedPlayerIDs = selectedPlayerIDs
         self.isSaving = isSaving
         self.onSave = onSave
-        _selectedPlayerIDs = State(initialValue: initiallySelectedPlayerIDs)
     }
 
     var body: some View {
         NavigationStack {
-            List(players) { player in
-                Button {
-                    toggle(player.id)
-                } label: {
-                    HStack(spacing: 12) {
-                        PlayerAvatar(player: player, size: 42)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(player.name)
-                                .foregroundStyle(.primary)
-                            if let position = player.primaryPosition, !position.isEmpty {
-                                Text(position)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        if selectedPlayerIDs.contains(player.id) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        }
+            List {
+                if let sheetErrorMessage {
+                    Section {
+                        Text(sheetErrorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
                     }
                 }
-                .buttonStyle(.plain)
+
+                Section("Joueurs") {
+                    ForEach(filteredPlayers) { player in
+                        Button {
+                            toggle(player.id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                PlayerAvatar(player: player, size: 42)
+                                Text(player.name)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: selectedPlayerIDs.contains(player.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedPlayerIDs.contains(player.id) ? Color.green : Color.secondary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSaving || isSubmitting)
+                    }
+                }
             }
-            .navigationTitle("Présents")
+            .searchable(text: $searchText, prompt: "Rechercher un joueur")
+            .navigationTitle("Joueurs présents")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
-                    .disabled(isSaving)
+                    .disabled(isSaving || isSubmitting)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Enregistrer") {
-                        Task {
-                            await onSave(selectedPlayerIDs)
+                    Button {
+                        submit()
+                    } label: {
+                        if isSaving || isSubmitting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "checkmark")
                         }
                     }
-                    .disabled(isSaving)
+                    .disabled(isSaving || isSubmitting)
                 }
             }
         }
     }
 
+    private var filteredPlayers: [Player] {
+        guard !searchText.isEmpty else { return players }
+        let needle = searchText.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        return players.filter { player in
+            player.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).contains(needle)
+        }
+    }
+
     private func toggle(_ playerID: String) {
+        sheetErrorMessage = nil
         if selectedPlayerIDs.contains(playerID) {
             selectedPlayerIDs.remove(playerID)
         } else {
             selectedPlayerIDs.insert(playerID)
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting else { return }
+        sheetErrorMessage = nil
+        Task {
+            isSubmitting = true
+            defer { isSubmitting = false }
+            if let errorMessage = await onSave() {
+                sheetErrorMessage = errorMessage
+            } else {
+                dismiss()
+            }
         }
     }
 }
@@ -744,46 +904,46 @@ private struct DrillSelectionSheet: View {
     let drills: [Drill]
     let selectedDrillIDs: Set<String>
     let isSaving: Bool
-    let onAdd: (String) async -> Void
+    let onAdd: (String) -> Void
 
     @State private var query = ""
+
+    init(
+        drills: [Drill],
+        selectedDrillIDs: Set<String>,
+        isSaving: Bool,
+        onAdd: @escaping (String) -> Void
+    ) {
+        self.drills = drills
+        self.selectedDrillIDs = selectedDrillIDs
+        self.isSaving = isSaving
+        self.onAdd = onAdd
+    }
 
     var body: some View {
         NavigationStack {
             List(filteredDrills) { drill in
-                Button {
-                    Task {
-                        await onAdd(drill.id)
-                    }
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(drill.title)
-                                .foregroundStyle(.primary)
-                            Text([drill.category, "\(drill.duration) min", drill.players].joined(separator: " • "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if selectedDrillIDs.contains(drill.id) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        } else {
-                            Image(systemName: "plus.circle")
-                                .foregroundStyle(.accentColor)
-                        }
-                    }
+                NavigationLink(value: drill.id) {
+                    drillRow(for: drill)
                 }
-                .buttonStyle(.plain)
-                .disabled(selectedDrillIDs.contains(drill.id) || isSaving)
+                .disabled(isSaving || selectedDrillIDs.contains(drill.id))
             }
             .searchable(text: $query, prompt: "Rechercher un exercice")
-            .navigationTitle("Ajouter un exercice")
+            .navigationTitle("Choisissez un exercice")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Fermer") {
                         dismiss()
                     }
+                }
+            }
+            .navigationDestination(for: String.self) { drillID in
+                DrillLibraryDetailView(
+                    drillID: drillID,
+                    canAdd: !selectedDrillIDs.contains(drillID),
+                    isSaving: isSaving
+                ) {
+                    onAdd(drillID)
                 }
             }
         }
@@ -798,6 +958,63 @@ private struct DrillSelectionSheet: View {
                 || drill.description.lowercased().contains(needle)
                 || drill.tags.contains(where: { $0.lowercased().contains(needle) })
         }
+    }
+
+    @ViewBuilder
+    private func drillRow(for drill: Drill) -> some View {
+        let subtitle = [drill.category, "\(drill.duration) min", drill.players].joined(separator: " • ")
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(drill.title)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if selectedDrillIDs.contains(drill.id) {
+                Text("Déjà sélectionné")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.orange.opacity(0.14), in: Capsule())
+            }
+        }
+    }
+}
+
+private struct DrillLibraryDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let drillID: String
+    let canAdd: Bool
+    let isSaving: Bool
+    let onAdd: () -> Void
+
+    var body: some View {
+        DrillDetailView(drillID: drillID)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    if canAdd {
+                        Button {
+                            onAdd()
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Text("Ajouter")
+                            }
+                        }
+                        .disabled(isSaving)
+                    }
+                }
+            }
+            .onChange(of: isSaving) { oldValue, newValue in
+                if oldValue == true, newValue == false {
+                    dismiss()
+                }
+            }
     }
 }
 
@@ -821,6 +1038,12 @@ private struct RoleEditorState: Identifiable {
     }
 }
 
+private struct PendingRoleSaveRequest: Identifiable {
+    let id = UUID()
+    let editor: RoleEditorState
+    let entry: TrainingRoleEntry
+}
+
 private struct RoleEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -829,12 +1052,13 @@ private struct RoleEditorSheet: View {
     let allPresentPlayers: [Player]
     let playerByID: [String: Player]
     let isSaving: Bool
-    let onSave: (TrainingRoleEntry) async -> Void
+    let onSave: (TrainingRoleEntry) -> Void
 
     @State private var role: String
     @State private var playerID: String
     @State private var rollingName = "..."
     @State private var isRandomizing = false
+    @State private var isSubmitting = false
 
     init(
         editor: RoleEditorState,
@@ -842,7 +1066,7 @@ private struct RoleEditorSheet: View {
         allPresentPlayers: [Player],
         playerByID: [String: Player],
         isSaving: Bool,
-        onSave: @escaping (TrainingRoleEntry) async -> Void
+        onSave: @escaping (TrainingRoleEntry) -> Void
     ) {
         self.editor = editor
         self.availablePlayers = availablePlayers
@@ -880,28 +1104,44 @@ private struct RoleEditorSheet: View {
                     } label: {
                         HStack {
                             Image(systemName: "dice")
-                            Text(isRandomizing ? rollingName : "Tirage au sort")
+                            Text("Tirage au sort")
                         }
                     }
-                    .disabled(candidatePlayers.isEmpty || isSaving)
+                    .disabled(candidatePlayers.isEmpty || isSaving || isSubmitting)
                 }
             }
             .navigationTitle(editor.mode == .add ? "Ajouter un rôle" : "Modifier le rôle")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
-                    .disabled(isSaving)
+                    .disabled(isSaving || isSubmitting || isRandomizing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(editor.mode == .add ? "Ajouter" : "Enregistrer") {
-                        Task {
-                            await onSave(TrainingRoleEntry(id: editor.entry.id, role: role, playerID: playerID))
+                    Button {
+                        isSubmitting = true
+                        onSave(TrainingRoleEntry(id: editor.entry.id, role: role, playerID: playerID))
+                    } label: {
+                        if isSaving || isSubmitting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "checkmark")
                         }
                     }
-                    .disabled(playerID.isEmpty || isSaving)
+                    .disabled(playerID.isEmpty || isSaving || isSubmitting || isRandomizing)
                 }
+            }
+            .onChange(of: isSaving) { oldValue, newValue in
+                if oldValue == true, newValue == false {
+                    isSubmitting = false
+                }
+            }
+            .fullScreenCover(isPresented: $isRandomizing) {
+                RandomizingOverlay(name: rollingName)
+                    .presentationBackground(.clear)
             }
         }
     }
@@ -919,15 +1159,39 @@ private struct RoleEditorSheet: View {
         isRandomizing = true
 
         Task {
-            for _ in 0 ..< 12 {
+            for _ in 0 ..< 25 {
                 if let random = candidatePlayers.randomElement() {
                     rollingName = random.name
                     playerID = random.id
                 }
-                try? await Task.sleep(for: .milliseconds(80))
+                try? await Task.sleep(for: .milliseconds(200))
             }
+            try? await Task.sleep(for: .seconds(1))
             isRandomizing = false
         }
+    }
+}
+
+private struct RandomizingOverlay: View {
+    let name: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.75)
+                .ignoresSafeArea()
+
+            Text(firstName)
+                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .padding(.horizontal, 24)
+        }
+    }
+
+    private var firstName: String {
+        let parts = name.split(separator: " ")
+        return parts.first.map(String.init) ?? name
     }
 }
 
@@ -935,14 +1199,27 @@ private struct PlayerAvatar: View {
     let player: Player?
     let size: CGFloat
 
+    private static let palette: [Color] = [
+        .red,
+        .orange,
+        .yellow,
+        .green,
+        .mint,
+        .teal,
+        .cyan,
+        .blue,
+        .indigo,
+        .pink
+    ]
+
     var body: some View {
         Circle()
-            .fill(Color.accentColor.opacity(0.14))
+            .fill(backgroundColor.gradient)
             .frame(width: size, height: size)
             .overlay {
                 Text(initials)
                     .font(.system(size: size * 0.34, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.white)
             }
     }
 
@@ -952,38 +1229,118 @@ private struct PlayerAvatar: View {
         let letters = parts.compactMap { $0.first }.map { String($0) }.joined()
         return letters.isEmpty ? "?" : letters.uppercased()
     }
+
+    private var backgroundColor: Color {
+        let source = player?.id ?? player?.name ?? "?"
+        let index = abs(source.hashValue) % Self.palette.count
+        return Self.palette[index]
+    }
+}
+
+private struct ErrorBanner: View {
+    let message: String
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.white)
+
+            Text(message)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 8)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: [Color.red, Color.red.opacity(0.82)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+    }
+}
+
+private struct TrainingStatusBanner: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.orange.opacity(0.28), lineWidth: 1)
+        )
+    }
 }
 
 private struct DetailCard<Content: View>: View {
-    let title: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String?
     @ViewBuilder let content: Content
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.headline)
+    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
 
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        VStack(alignment: .leading, spacing: 14) {
+            if let title {
+                Text(title)
+                    .font(.headline)
+            }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-}
-
-private struct TrainingDrillProxy {
-    let id: String
-    let trainingId: String?
-    let drillId: String
-    let order: Int
-
-    var asTrainingDrill: TrainingDrill {
-        .init(id: id, trainingId: trainingId, drillId: drillId, order: order)
-    }
-}
-
-private extension TrainingDrill {
-    init(id: String, trainingId: String?, drillId: String, order: Int) {
-        self = TrainingDrillProxy(id: id, trainingId: trainingId, drillId: drillId, order: order).asTrainingDrill
+        .background(Color(uiColor: .secondarySystemBackground), in: shape)
+        .overlay {
+            shape
+                .strokeBorder(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.06)
+                        : Color.black.opacity(0.08),
+                    lineWidth: 1
+                )
+        }
+        .shadow(
+            color: colorScheme == .dark ? .clear : Color.black.opacity(0.06),
+            radius: 10,
+            y: 3
+        )
     }
 }
