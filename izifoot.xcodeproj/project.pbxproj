@@ -10,6 +10,7 @@
 		423BC0BB2F71DE7C000C1FEC /* izifoot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = izifoot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4258FB8F2F748483006C5E2C /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		4294DB6A2F77324B0077A058 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -53,6 +54,11 @@
 			sourceTree = "<group>";
 		};
 		4258FB912F748483006C5E2C /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4294DB6C2F77324B0077A058 /* Products */ = {
 			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
@@ -117,6 +123,10 @@
 				{
 					ProductGroup = 423BC0F92F71DF9D000C1FEC /* Products */;
 					ProjectRef = 423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 4294DB6C2F77324B0077A058 /* Products */;
+					ProjectRef = 4294DB6A2F77324B0077A058 /* izifoot.xcodeproj */;
 				},
 			);
 			projectRoot = "";

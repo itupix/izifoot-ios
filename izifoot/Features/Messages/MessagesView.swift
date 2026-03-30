@@ -1,0 +1,224 @@
+import SwiftUI
+import Combine
+
+extension Notification.Name {
+    static let teamMessagesDidRefresh = Notification.Name("teamMessagesDidRefresh")
+}
+
+@MainActor
+final class MessagesViewModel: ObservableObject {
+    @Published private(set) var messages: [TeamMessage] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var isSending = false
+    @Published var draft = ""
+    @Published var errorMessage: String?
+
+    private var pendingLikes = Set<String>()
+    private let api: IzifootAPI
+
+    init(api: IzifootAPI = IzifootAPI()) {
+        self.api = api
+    }
+
+    func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            messages = try await api.teamMessages()
+                .sorted { lhs, rhs in lhs.createdAt > rhs.createdAt }
+            NotificationCenter.default.post(name: .teamMessagesDidRefresh, object: nil)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func sendIfPossible() async {
+        let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+
+        isSending = true
+        errorMessage = nil
+        defer { isSending = false }
+
+        do {
+            let created = try await api.createTeamMessage(content: content)
+            draft = ""
+            messages.insert(created, at: 0)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func toggleLike(_ message: TeamMessage) async {
+        guard !pendingLikes.contains(message.id) else { return }
+        pendingLikes.insert(message.id)
+        defer { pendingLikes.remove(message.id) }
+
+        do {
+            let reaction: TeamMessageReactionResponse
+            if message.likedByMe {
+                reaction = try await api.unlikeTeamMessage(id: message.id)
+            } else {
+                reaction = try await api.likeTeamMessage(id: message.id)
+            }
+
+            if let index = messages.firstIndex(where: { $0.id == message.id }) {
+                let current = messages[index]
+                messages[index] = TeamMessage(
+                    id: current.id,
+                    teamId: current.teamId,
+                    clubId: current.clubId,
+                    content: current.content,
+                    createdAt: current.createdAt,
+                    updatedAt: current.updatedAt,
+                    author: current.author,
+                    likesCount: reaction.likesCount,
+                    likedByMe: reaction.likedByMe
+                )
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+struct MessagesView: View {
+    @EnvironmentObject private var authStore: AuthStore
+    @StateObject private var viewModel = MessagesViewModel()
+
+    private var canPost: Bool {
+        authStore.me?.role.canEditSportData == true
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if canPost {
+                composer
+            }
+
+            if let errorMessage = viewModel.errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
+
+            content
+        }
+        .navigationTitle("Messages")
+        .task {
+            await viewModel.load()
+        }
+        .refreshable {
+            await viewModel.load()
+        }
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Canal officiel coach/direction vers joueurs et parents")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $viewModel.draft)
+                .frame(minHeight: 88)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color(.separator), lineWidth: 1)
+                )
+
+            HStack {
+                Text("\(viewModel.draft.count)/2000")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    Task { await viewModel.sendIfPossible() }
+                } label: {
+                    if viewModel.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Envoyer", systemImage: "paperplane.fill")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isSending || viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.isLoading {
+            VStack {
+                ProgressView("Chargement des messages...")
+                    .padding(.top, 24)
+                Spacer()
+            }
+        } else if viewModel.messages.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "message")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("Aucun message pour le moment")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List(viewModel.messages) { message in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(authorLabel(message.author))
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(formattedDate(message.createdAt))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(message.content)
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task { await viewModel.toggleLike(message) }
+                        } label: {
+                            Label("\(message.likesCount)", systemImage: message.likedByMe ? "heart.fill" : "heart")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(message.likedByMe ? .pink : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    private func authorLabel(_ author: TeamMessageAuthor?) -> String {
+        let fullName = [author?.firstName, author?.lastName]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " ")
+        if !fullName.isEmpty { return fullName }
+        return "Staff"
+    }
+
+    private func formattedDate(_ isoDate: String) -> String {
+        if let date = ISO8601DateFormatter().date(from: isoDate) {
+            return date.formatted(date: .abbreviated, time: .shortened)
+        }
+        return isoDate
+    }
+}

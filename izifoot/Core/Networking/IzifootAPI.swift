@@ -194,6 +194,44 @@ final class IzifootAPI {
         )
     }
 
+    func teamMessages() async throws -> [TeamMessage] {
+        let response = try await client.get(APIRoutes.TeamMessages.list, responseType: TeamMessagesResponse.self)
+        return response.items
+    }
+
+    func createTeamMessage(content: String) async throws -> TeamMessage {
+        struct Payload: Encodable {
+            let content: String
+        }
+
+        return try await client.post(
+            APIRoutes.TeamMessages.list,
+            body: Payload(content: content),
+            responseType: TeamMessage.self
+        )
+    }
+
+    func likeTeamMessage(id: String) async throws -> TeamMessageReactionResponse {
+        struct EmptyPayload: Encodable {}
+        return try await client.post(
+            APIRoutes.TeamMessages.like(id),
+            body: EmptyPayload(),
+            responseType: TeamMessageReactionResponse.self
+        )
+    }
+
+    func unlikeTeamMessage(id: String) async throws -> TeamMessageReactionResponse {
+        try await client.delete(APIRoutes.TeamMessages.like(id), responseType: TeamMessageReactionResponse.self)
+    }
+
+    func unreadTeamMessagesCount() async throws -> Int {
+        let response = try await client.get(
+            APIRoutes.TeamMessages.unreadCount,
+            responseType: TeamMessagesUnreadCountResponse.self
+        )
+        return max(0, response.count)
+    }
+
     func createPlayer(
         firstName: String,
         lastName: String,

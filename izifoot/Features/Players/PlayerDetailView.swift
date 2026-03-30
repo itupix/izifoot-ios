@@ -3,7 +3,7 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import UIKit
 
-private enum PlayerInvitationStatusValue: String {
+fileprivate enum PlayerInvitationStatusValue: String {
     case none = "NONE"
     case pending = "PENDING"
     case accepted = "ACCEPTED"
@@ -19,7 +19,7 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
     @Published private(set) var isLoading = false
     @Published private(set) var isInviting = false
-    @Published private(set) var invitationStatus: PlayerInvitationStatusValue = .none
+    @Published fileprivate var invitationStatus: PlayerInvitationStatusValue = .none
     @Published private(set) var inviteURL: URL?
     @Published var isInviteSheetPresented = false
     @Published var errorMessage: String?

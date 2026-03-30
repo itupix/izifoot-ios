@@ -38,6 +38,39 @@ struct Me: Codable, Identifiable {
     let linkedPlayerUserId: String?
 }
 
+struct TeamMessageAuthor: Codable {
+    let id: String
+    let firstName: String?
+    let lastName: String?
+    let role: AccountRole
+}
+
+struct TeamMessage: Codable, Identifiable {
+    let id: String
+    let teamId: String
+    let clubId: String
+    let content: String
+    let createdAt: String
+    let updatedAt: String
+    let author: TeamMessageAuthor?
+    let likesCount: Int
+    let likedByMe: Bool
+}
+
+struct TeamMessagesResponse: Codable {
+    let items: [TeamMessage]
+}
+
+struct TeamMessageReactionResponse: Codable {
+    let ok: Bool
+    let likesCount: Int
+    let likedByMe: Bool
+}
+
+struct TeamMessagesUnreadCountResponse: Codable {
+    let count: Int
+}
+
 struct Club: Codable, Identifiable {
     let id: String
     let name: String

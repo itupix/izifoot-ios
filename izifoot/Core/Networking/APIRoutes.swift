@@ -96,4 +96,10 @@ enum APIRoutes {
             "/attendance?session_type=\(type)&session_id=\(sessionID.urlEncoded)"
         }
     }
+
+    enum TeamMessages {
+        static let list = "/team-messages"
+        static let unreadCount = "/team-messages/unread-count"
+        static func like(_ id: String) -> String { "/team-messages/\(id.urlEncoded)/reactions/like" }
+    }
 }
