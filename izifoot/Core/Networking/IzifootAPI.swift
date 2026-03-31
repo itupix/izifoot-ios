@@ -108,12 +108,12 @@ final class IzifootAPI {
         try await client.get(APIRoutes.meChild, responseType: LinkedChildProfile?.self)
     }
 
-    func updateMeProfile(firstName: String, lastName: String, email: String, phone: String) async throws -> Me {
+    func updateMeProfile(firstName: String, lastName: String, email: String?, phone: String?) async throws -> Me {
         struct UpdateProfilePayload: Encodable {
             let firstName: String
             let lastName: String
-            let email: String
-            let phone: String
+            let email: String?
+            let phone: String?
         }
 
         return try await client.put(
@@ -189,13 +189,20 @@ final class IzifootAPI {
         try await client.get(APIRoutes.Players.invitationStatus(id), responseType: PlayerInvitationStatusResponse.self)
     }
 
-    func invitePlayer(id: String) async throws -> PlayerInviteResponse {
-        struct EmptyPayload: Encodable {}
+    func invitePlayer(id: String, email: String? = nil, phone: String? = nil) async throws -> PlayerInviteResponse {
+        struct InvitePayload: Encodable {
+            let email: String?
+            let phone: String?
+        }
         return try await client.post(
             APIRoutes.Players.invite(id),
-            body: EmptyPayload(),
+            body: InvitePayload(email: email, phone: phone),
             responseType: PlayerInviteResponse.self
         )
+    }
+
+    func deletePlayerParent(playerID: String, parentID: String) async throws {
+        _ = try await client.delete(APIRoutes.Players.parentByID(playerID, parentID: parentID), responseType: EmptyResponse.self)
     }
 
     func teamMessages() async throws -> [TeamMessage] {
