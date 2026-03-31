@@ -8,6 +8,9 @@ struct AccountView: View {
     @State private var phone = ""
     @State private var isSaving = false
     @State private var profileErrorMessage: String?
+    @State private var linkedChild: LinkedChildProfile?
+    @State private var teamNameByID: [String: String] = [:]
+    @State private var isEditSheetPresented = false
 
     private let api = IzifootAPI()
 
@@ -15,40 +18,42 @@ struct AccountView: View {
         NavigationStack {
             List {
                 if let me = authStore.me {
-                    Section("Compte") {
-                        LabeledContent("Email", value: me.email)
-                        LabeledContent("Rôle", value: me.role.rawValue)
-                        LabeledContent("Premium", value: me.isPremium ? "Oui" : "Non")
-                    }
-
-                    Section("Modifier mon profil") {
-                        TextField("Prénom", text: $firstName)
-                            .textInputAutocapitalization(.words)
-                        TextField("Nom", text: $lastName)
-                            .textInputAutocapitalization(.words)
-                        TextField("Email", text: $email)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.emailAddress)
-                        TextField("Téléphone", text: $phone)
-                            .keyboardType(.phonePad)
-
-                        Button(isSaving ? "Enregistrement…" : "Enregistrer") {
-                            Task { await saveProfile() }
+                    Section("Moi") {
+                        HStack {
+                            Spacer()
+                            Button("Modifier") {
+                                isEditSheetPresented = true
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .disabled(isSaving || firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        LabeledContent("Prénom", value: displayValue(me.firstName))
+                        LabeledContent("Nom", value: displayValue(me.lastName))
+                        LabeledContent("Email", value: me.email)
+                        LabeledContent("Téléphone", value: displayValue(me.phone))
+                        if me.role != .parent {
+                            LabeledContent("Équipe", value: teamDisplayName(for: me.teamId))
+                        }
                     }
 
-                    if let teamID = me.teamId {
-                        Section("Equipe liée") {
-                            Text(teamID)
+                    if me.role == .parent {
+                        Section("Mon enfant") {
+                            if let child = linkedChild {
+                                LabeledContent("Prénom", value: displayValue(child.firstName))
+                                LabeledContent("Nom", value: displayValue(child.lastName ?? child.name))
+                                LabeledContent("Email", value: displayValue(child.email))
+                                LabeledContent("Téléphone", value: displayValue(child.phone))
+                                LabeledContent("Équipe", value: child.teamName ?? teamDisplayName(for: child.teamId))
+                            } else {
+                                Text("Aucun enfant lié")
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
                     if !me.managedTeamIds.isEmpty {
-                        Section("Equipes gérées") {
+                        Section("Équipes gérées") {
                             ForEach(me.managedTeamIds, id: \.self) { teamID in
-                                Text(teamID)
+                                Text(teamDisplayName(for: teamID))
                             }
                         }
                     }
@@ -63,20 +68,51 @@ struct AccountView: View {
                         Text("Se déconnecter")
                     }
                 }
-
-                Section("Outils") {
-                    NavigationLink("Ouvrir un lien public plateau") {
-                        PublicMatchdayView()
-                    }
-                }
             }
-            .navigationTitle("Compte")
+            .navigationTitle("Mon compte")
             .task(id: authStore.me?.id) {
                 guard let me = authStore.me else { return }
                 firstName = me.firstName ?? ""
                 lastName = me.lastName ?? ""
                 email = me.email
                 phone = me.phone ?? ""
+                await loadTeamsAndChild(for: me)
+            }
+            .sheet(isPresented: $isEditSheetPresented) {
+                NavigationStack {
+                    Form {
+                        Section("Modifier mon profil") {
+                            TextField("Prénom", text: $firstName)
+                                .textInputAutocapitalization(.words)
+                            TextField("Nom", text: $lastName)
+                                .textInputAutocapitalization(.words)
+                            TextField("Email", text: $email)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.emailAddress)
+                            TextField("Téléphone", text: $phone)
+                                .keyboardType(.phonePad)
+                        }
+                    }
+                    .navigationTitle("Modifier")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Fermer") {
+                                isEditSheetPresented = false
+                            }
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(isSaving ? "Enregistrement…" : "Enregistrer") {
+                                Task {
+                                    if await saveProfile() {
+                                        isEditSheetPresented = false
+                                    }
+                                }
+                            }
+                            .disabled(isSaving || firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
             }
             .alert("Profil", isPresented: Binding(
                 get: { profileErrorMessage != nil },
@@ -89,7 +125,41 @@ struct AccountView: View {
         }
     }
 
-    private func saveProfile() async {
+    private func loadTeamsAndChild(for me: Me) async {
+        do {
+            let teams = try await api.teams()
+            var map: [String: String] = [:]
+            for team in teams {
+                map[team.id] = team.name
+            }
+            teamNameByID = map
+        } catch {
+            teamNameByID = [:]
+        }
+
+        if me.role == .parent {
+            do {
+                linkedChild = try await api.meLinkedChild()
+            } catch {
+                linkedChild = nil
+            }
+        } else {
+            linkedChild = nil
+        }
+    }
+
+    private func teamDisplayName(for teamID: String?) -> String {
+        guard let teamID, !teamID.isEmpty else { return "—" }
+        return teamNameByID[teamID] ?? teamID
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "—" }
+        return value
+    }
+
+    @discardableResult
+    private func saveProfile() async -> Bool {
         isSaving = true
         defer { isSaving = false }
 
@@ -102,8 +172,10 @@ struct AccountView: View {
             )
             await authStore.refreshMe()
             profileErrorMessage = "Profil mis à jour."
+            return true
         } catch {
             profileErrorMessage = error.localizedDescription
+            return false
         }
     }
 }

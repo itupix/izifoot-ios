@@ -87,6 +87,7 @@ final class MessagesViewModel: ObservableObject {
 struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = MessagesViewModel()
+    @FocusState private var isComposerFocused: Bool
 
     private var canPost: Bool {
         authStore.me?.role.canEditSportData == true
@@ -94,6 +95,16 @@ struct MessagesView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Canal de l'équipe")
+                    .font(.title3.weight(.semibold))
+                Text("Messages envoyés par le staff à tous les joueurs et parents.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+
             if canPost {
                 composer
             }
@@ -115,6 +126,17 @@ struct MessagesView: View {
         .refreshable {
             await viewModel.load()
         }
+        .onTapGesture {
+            isComposerFocused = false
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Terminer") {
+                    isComposerFocused = false
+                }
+            }
+        }
     }
 
     private var composer: some View {
@@ -124,6 +146,7 @@ struct MessagesView: View {
                 .foregroundStyle(.secondary)
 
             TextEditor(text: $viewModel.draft)
+                .focused($isComposerFocused)
                 .frame(minHeight: 88)
                 .padding(8)
                 .background(
@@ -138,6 +161,7 @@ struct MessagesView: View {
                 Spacer()
                 Button {
                     Task { await viewModel.sendIfPossible() }
+                    isComposerFocused = false
                 } label: {
                     if viewModel.isSending {
                         ProgressView()
@@ -172,33 +196,47 @@ struct MessagesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(viewModel.messages) { message in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(authorLabel(message.author))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                         Spacer()
                         Text(formattedDate(message.createdAt))
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
-                    Text(message.content)
-                        .font(.body)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     HStack {
-                        Spacer()
-                        Button {
-                            Task { await viewModel.toggleLike(message) }
-                        } label: {
-                            Label("\(message.likesCount)", systemImage: message.likedByMe ? "heart.fill" : "heart")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(message.likedByMe ? .pink : .secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(message.content)
+                                .font(.body)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await viewModel.toggleLike(message) }
+                                } label: {
+                                    Label("\(message.likesCount)", systemImage: message.likedByMe ? "heart.fill" : "heart")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(message.likedByMe ? .pink : .secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+
+                        Spacer(minLength: 24)
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
+                .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
         }
@@ -216,9 +254,30 @@ struct MessagesView: View {
     }
 
     private func formattedDate(_ isoDate: String) -> String {
-        if let date = ISO8601DateFormatter().date(from: isoDate) {
-            return date.formatted(date: .abbreviated, time: .shortened)
+        if let date = Self.iso8601FormatterWithFractionalSeconds.date(from: isoDate)
+            ?? Self.iso8601Formatter.date(from: isoDate) {
+            return Self.humanDateFormatter.string(from: date)
         }
         return isoDate
     }
+
+    private static let iso8601FormatterWithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let humanDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateStyle = .long
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }

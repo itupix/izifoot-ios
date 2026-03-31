@@ -85,12 +85,6 @@ struct PlanningHomeView: View {
                     dateHeader
 
                     PlanningSectionCard(title: "Entraînements") {
-                        if !teamScopedWritable {
-                            Text("Mode lecture seule: création et modifications désactivées.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
                         if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
                             Text("Sélectionnez une équipe active pour modifier les données.")
                                 .font(.subheadline)

@@ -14,19 +14,18 @@ private struct AppChromeModifier: ViewModifier {
     let showTeamScopePicker: Bool
     let showsBranding: Bool
 
+    private var showsAccountShortcutOnly: Bool {
+        guard let role = authStore.me?.role else { return false }
+        return role == .player || role == .parent
+    }
+
     func body(content: Content) -> some View {
         content
             .toolbar {
                 if showsBranding {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Label {
-                            Text("izifoot")
-                                .font(.headline.weight(.semibold))
-                        } icon: {
-                            Image(systemName: "soccerball")
-                                .imageScale(.medium)
-                        }
-                        .labelStyle(.titleAndIcon)
+                    ToolbarItem(placement: .principal) {
+                        Text("izifoot")
+                            .font(.headline.weight(.semibold))
                     }
                 }
 
@@ -36,19 +35,30 @@ private struct AppChromeModifier: ViewModifier {
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Mon compte") {
+                if showsAccountShortcutOnly {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
                             destination = .account
+                        } label: {
+                            Image(systemName: "person.circle")
                         }
-
-                        if authStore.me?.role == .direction {
-                            Button("Mon club") {
-                                destination = .club
+                        .accessibilityLabel("Mon compte")
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("Mon compte") {
+                                destination = .account
                             }
+
+                            if authStore.me?.role == .direction {
+                                Button("Mon club") {
+                                    destination = .club
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }

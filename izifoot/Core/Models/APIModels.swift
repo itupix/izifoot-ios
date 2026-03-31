@@ -38,6 +38,18 @@ struct Me: Codable, Identifiable {
     let linkedPlayerUserId: String?
 }
 
+
+struct LinkedChildProfile: Codable, Identifiable {
+    let id: String
+    let name: String?
+    let firstName: String?
+    let lastName: String?
+    let email: String?
+    let phone: String?
+    let teamId: String?
+    let teamName: String?
+}
+
 struct TeamMessageAuthor: Codable {
     let id: String
     let firstName: String?
