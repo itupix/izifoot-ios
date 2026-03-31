@@ -37,6 +37,34 @@ struct Me: Codable, Identifiable {
     let managedTeamIds: [String]
     let linkedPlayerUserId: String?
 
+    init(
+        id: String,
+        email: String,
+        firstName: String?,
+        lastName: String?,
+        phone: String?,
+        isPremium: Bool,
+        planningCount: Int?,
+        role: AccountRole,
+        clubId: String?,
+        teamId: String?,
+        managedTeamIds: [String],
+        linkedPlayerUserId: String?
+    ) {
+        self.id = id
+        self.email = email
+        self.firstName = firstName
+        self.lastName = lastName
+        self.phone = phone
+        self.isPremium = isPremium
+        self.planningCount = planningCount
+        self.role = role
+        self.clubId = clubId
+        self.teamId = teamId
+        self.managedTeamIds = managedTeamIds
+        self.linkedPlayerUserId = linkedPlayerUserId
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case email
