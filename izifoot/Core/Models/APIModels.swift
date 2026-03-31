@@ -77,10 +77,26 @@ struct Me: Codable, Identifiable {
         managedTeamIds = (try? container.decodeIfPresent([String].self, forKey: .managedTeamIds)) ?? []
         linkedPlayerUserId = try? container.decodeIfPresent(String.self, forKey: .linkedPlayerUserId)
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(email, forKey: .email)
+        try container.encodeIfPresent(firstName, forKey: .firstName)
+        try container.encodeIfPresent(lastName, forKey: .lastName)
+        try container.encodeIfPresent(phone, forKey: .phone)
+        try container.encode(isPremium, forKey: .isPremium)
+        try container.encodeIfPresent(planningCount, forKey: .planningCount)
+        try container.encode(role, forKey: .role)
+        try container.encodeIfPresent(clubId, forKey: .clubId)
+        try container.encodeIfPresent(teamId, forKey: .teamId)
+        try container.encode(managedTeamIds, forKey: .managedTeamIds)
+        try container.encodeIfPresent(linkedPlayerUserId, forKey: .linkedPlayerUserId)
+    }
 }
 
 
-struct LinkedChildProfile: Codable, Identifiable {
+struct LinkedChildProfile: Decodable, Identifiable {
     let id: String
     let name: String?
     let firstName: String?
