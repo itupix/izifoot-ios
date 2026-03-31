@@ -55,11 +55,10 @@ final class AuthStore: ObservableObject {
             if let normalizedMe = response.normalizedMe {
                 me = normalizedMe
                 tokenStore.cachedMe = normalizedMe
-            } else {
-                let refreshedMe = try await api.me()
-                me = refreshedMe
-                tokenStore.cachedMe = refreshedMe
             }
+            let refreshedMe = try await api.me()
+            me = refreshedMe
+            tokenStore.cachedMe = refreshedMe
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -78,11 +77,10 @@ final class AuthStore: ObservableObject {
             if let normalizedMe = response.normalizedMe {
                 me = normalizedMe
                 tokenStore.cachedMe = normalizedMe
-            } else {
-                let refreshedMe = try await api.me()
-                me = refreshedMe
-                tokenStore.cachedMe = refreshedMe
             }
+            let refreshedMe = try await api.me()
+            me = refreshedMe
+            tokenStore.cachedMe = refreshedMe
         } catch {
             errorMessage = error.localizedDescription
         }

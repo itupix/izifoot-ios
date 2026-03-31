@@ -36,6 +36,47 @@ struct Me: Codable, Identifiable {
     let teamId: String?
     let managedTeamIds: [String]
     let linkedPlayerUserId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case firstName
+        case first_name
+        case prenom
+        case lastName
+        case last_name
+        case nom
+        case phone
+        case telephone
+        case isPremium
+        case planningCount
+        case role
+        case clubId
+        case teamId
+        case managedTeamIds
+        case linkedPlayerUserId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        email = try container.decode(String.self, forKey: .email)
+        firstName = try? container.decodeIfPresent(String.self, forKey: .firstName)
+            ?? container.decodeIfPresent(String.self, forKey: .first_name)
+            ?? container.decodeIfPresent(String.self, forKey: .prenom)
+        lastName = try? container.decodeIfPresent(String.self, forKey: .lastName)
+            ?? container.decodeIfPresent(String.self, forKey: .last_name)
+            ?? container.decodeIfPresent(String.self, forKey: .nom)
+        phone = try? container.decodeIfPresent(String.self, forKey: .phone)
+            ?? container.decodeIfPresent(String.self, forKey: .telephone)
+        isPremium = (try? container.decodeIfPresent(Bool.self, forKey: .isPremium)) ?? false
+        planningCount = try? container.decodeIfPresent(Int.self, forKey: .planningCount)
+        role = try container.decode(AccountRole.self, forKey: .role)
+        clubId = try? container.decodeIfPresent(String.self, forKey: .clubId)
+        teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+        managedTeamIds = (try? container.decodeIfPresent([String].self, forKey: .managedTeamIds)) ?? []
+        linkedPlayerUserId = try? container.decodeIfPresent(String.self, forKey: .linkedPlayerUserId)
+    }
 }
 
 
@@ -47,6 +88,39 @@ struct LinkedChildProfile: Codable, Identifiable {
     let licence: String?
     let teamId: String?
     let teamName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case firstName
+        case first_name
+        case prenom
+        case lastName
+        case last_name
+        case nom
+        case licence
+        case license
+        case teamId
+        case team_id
+        case teamName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        firstName = try? container.decodeIfPresent(String.self, forKey: .firstName)
+            ?? container.decodeIfPresent(String.self, forKey: .first_name)
+            ?? container.decodeIfPresent(String.self, forKey: .prenom)
+        lastName = try? container.decodeIfPresent(String.self, forKey: .lastName)
+            ?? container.decodeIfPresent(String.self, forKey: .last_name)
+            ?? container.decodeIfPresent(String.self, forKey: .nom)
+        licence = try? container.decodeIfPresent(String.self, forKey: .licence)
+            ?? container.decodeIfPresent(String.self, forKey: .license)
+        teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+            ?? container.decodeIfPresent(String.self, forKey: .team_id)
+        teamName = try? container.decodeIfPresent(String.self, forKey: .teamName)
+    }
 }
 
 struct TeamMessageAuthor: Codable {
