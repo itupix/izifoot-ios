@@ -44,8 +44,7 @@ struct LinkedChildProfile: Codable, Identifiable {
     let name: String?
     let firstName: String?
     let lastName: String?
-    let email: String?
-    let phone: String?
+    let licence: String?
     let teamId: String?
     let teamName: String?
 }
@@ -154,6 +153,20 @@ struct Coach: Codable, Identifiable {
 }
 
 struct Player: Decodable, Identifiable {
+    struct ParentContact: Decodable, Identifiable {
+        let parentId: String?
+        let parentUserId: String?
+        let firstName: String?
+        let lastName: String?
+        let email: String?
+        let phone: String?
+        let status: String?
+
+        var id: String {
+            parentId ?? [firstName ?? "", lastName ?? "", email ?? "", phone ?? ""].joined(separator: "|")
+        }
+    }
+
     let id: String
     let name: String
     let firstName: String?
@@ -162,6 +175,8 @@ struct Player: Decodable, Identifiable {
     let secondaryPosition: String?
     let email: String?
     let phone: String?
+    let isChild: Bool
+    let parentContacts: [ParentContact]
     let teamId: String?
 
     enum CodingKeys: String, CodingKey {
@@ -177,6 +192,10 @@ struct Player: Decodable, Identifiable {
         case secondaryPosition = "secondary_position"
         case email
         case phone
+        case isChild
+        case is_child
+        case enfant
+        case parentContacts
         case teamId
     }
 
@@ -194,6 +213,11 @@ struct Player: Decodable, Identifiable {
         secondaryPosition = try? container.decodeIfPresent(String.self, forKey: .secondaryPosition)
         email = try? container.decodeIfPresent(String.self, forKey: .email)
         phone = try? container.decodeIfPresent(String.self, forKey: .phone)
+        isChild = (try? container.decodeIfPresent(Bool.self, forKey: .isChild))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .is_child))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .enfant))
+            ?? false
+        parentContacts = (try? container.decodeIfPresent([ParentContact].self, forKey: .parentContacts)) ?? []
         teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
     }
 
@@ -206,6 +230,8 @@ struct Player: Decodable, Identifiable {
         secondaryPosition: String? = nil,
         email: String? = nil,
         phone: String? = nil,
+        isChild: Bool = false,
+        parentContacts: [ParentContact] = [],
         teamId: String? = nil
     ) {
         self.id = id
@@ -216,6 +242,8 @@ struct Player: Decodable, Identifiable {
         self.secondaryPosition = secondaryPosition
         self.email = email
         self.phone = phone
+        self.isChild = isChild
+        self.parentContacts = parentContacts
         self.teamId = teamId
     }
 }

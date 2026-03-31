@@ -40,8 +40,7 @@ struct AccountView: View {
                             if let child = linkedChild {
                                 LabeledContent("Prénom", value: displayValue(child.firstName))
                                 LabeledContent("Nom", value: displayValue(child.lastName ?? child.name))
-                                LabeledContent("Email", value: displayValue(child.email))
-                                LabeledContent("Téléphone", value: displayValue(child.phone))
+                                LabeledContent("Licence", value: displayValue(child.licence))
                                 LabeledContent("Équipe", value: child.teamName ?? teamDisplayName(for: child.teamId))
                             } else {
                                 Text("Aucun enfant lié")
@@ -109,7 +108,13 @@ struct AccountView: View {
                                     }
                                 }
                             }
-                            .disabled(isSaving || firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(
+                                isSaving
+                                || firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || (email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    && phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            )
                         }
                     }
                 }
@@ -163,12 +168,22 @@ struct AccountView: View {
         isSaving = true
         defer { isSaving = false }
 
+        let normalizedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPhone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedFirstName.isEmpty, !normalizedLastName.isEmpty, !(normalizedEmail.isEmpty && normalizedPhone.isEmpty) else {
+            profileErrorMessage = "Merci de renseigner prénom, nom et au moins un contact (e-mail ou téléphone)."
+            return false
+        }
+
         do {
             _ = try await api.updateMeProfile(
-                firstName: firstName.trimmingCharacters(in: .whitespacesAndNewlines),
-                lastName: lastName.trimmingCharacters(in: .whitespacesAndNewlines),
-                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                phone: phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                firstName: normalizedFirstName,
+                lastName: normalizedLastName,
+                email: normalizedEmail.isEmpty ? nil : normalizedEmail,
+                phone: normalizedPhone.isEmpty ? nil : normalizedPhone
             )
             await authStore.refreshMe()
             profileErrorMessage = "Profil mis à jour."
