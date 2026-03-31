@@ -31,6 +31,7 @@ enum APIRoutes {
     enum Players {
         static let list = "/players"
         static func byID(_ id: String) -> String { "/players/\(id.urlEncoded)" }
+        static func parentByID(_ id: String, parentID: String) -> String { "/players/\(id.urlEncoded)/parents/\(parentID.urlEncoded)" }
         static func invite(_ id: String) -> String { "/players/\(id.urlEncoded)/invite" }
         static func invitationStatus(_ id: String) -> String { "/players/\(id.urlEncoded)/invitation-status" }
     }

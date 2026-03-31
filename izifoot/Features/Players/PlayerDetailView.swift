@@ -19,6 +19,7 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
     @Published private(set) var isLoading = false
     @Published private(set) var isInviting = false
+    @Published private(set) var deletingParentID: String?
     @Published fileprivate var invitationStatus: PlayerInvitationStatusValue = .none
     @Published private(set) var inviteURL: URL?
     @Published var isInviteSheetPresented = false
@@ -48,12 +49,12 @@ final class PlayerDetailViewModel: ObservableObject {
         }
     }
 
-    func invitePlayer(id: String) async {
+    func invitePlayer(id: String, email: String? = nil, phone: String? = nil) async {
         isInviting = true
         defer { isInviting = false }
 
         do {
-            let response = try await api.invitePlayer(id: id)
+            let response = try await api.invitePlayer(id: id, email: email, phone: phone)
             invitationStatus = .fromAPI(response.status)
             if let inviteUrl = response.inviteUrl, !inviteUrl.isEmpty, let url = URL(string: inviteUrl) {
                 inviteURL = url
@@ -65,12 +66,30 @@ final class PlayerDetailViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+
+    func deleteParent(playerID: String, parentID: String) async -> Bool {
+        deletingParentID = parentID
+        defer { deletingParentID = nil }
+
+        do {
+            try await api.deletePlayerParent(playerID: playerID, parentID: parentID)
+            await load(id: playerID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
 }
 
 struct PlayerDetailView: View {
     let playerID: String
 
     @StateObject private var viewModel = PlayerDetailViewModel()
+    @State private var isParentInviteSheetPresented = false
+    @State private var parentInviteEmail = ""
+    @State private var parentInvitePhone = ""
+    @State private var parentToDelete: Player.ParentContact?
 
     var body: some View {
         List {
@@ -94,20 +113,60 @@ struct PlayerDetailView: View {
                     }
                 }
 
-                Section("Contact") {
-                    if let email = player.email {
-                        LabeledContent("Email", value: email)
+                if !player.isChild {
+                    Section("Contact") {
+                        if let email = player.email {
+                            LabeledContent("Email", value: email)
+                        }
+                        if let phone = player.phone {
+                            LabeledContent("Téléphone", value: phone)
+                        }
                     }
-                    if let phone = player.phone {
-                        LabeledContent("Téléphone", value: phone)
+                }
+
+                if player.isChild {
+                    Section("Parents") {
+                        if player.parentContacts.isEmpty {
+                            Text("Aucun parent lié")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(Array(player.parentContacts.enumerated()), id: \.element.id) { index, parent in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Parent \(index + 1)")
+                                            .font(.headline)
+                                        Spacer()
+                                        if let parentID = parent.parentId, !parentID.isEmpty {
+                                            Button(role: .destructive) {
+                                                parentToDelete = parent
+                                            } label: {
+                                                Text(viewModel.deletingParentID == parentID ? "Suppression…" : "Supprimer")
+                                            }
+                                            .disabled(viewModel.deletingParentID == parentID)
+                                        }
+                                    }
+                                    LabeledContent("Prénom", value: displayValue(parent.firstName))
+                                    LabeledContent("Nom", value: displayValue(parent.lastName))
+                                    LabeledContent("Email", value: displayValue(parent.email))
+                                    LabeledContent("Téléphone", value: displayValue(parent.phone))
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
                     }
                 }
 
                 Section("Invitation compte") {
                     LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
-                    if viewModel.invitationStatus != .accepted {
+                    if viewModel.invitationStatus != .accepted || player.isChild {
                         Button(viewModel.isInviting ? "Envoi…" : (viewModel.invitationStatus == .pending ? "Renvoyer l'invitation" : "Inviter")) {
-                            Task { await viewModel.invitePlayer(id: playerID) }
+                            if player.isChild {
+                                parentInviteEmail = ""
+                                parentInvitePhone = ""
+                                isParentInviteSheetPresented = true
+                            } else {
+                                Task { await viewModel.invitePlayer(id: playerID) }
+                            }
                         }
                         .disabled(viewModel.isInviting)
                     }
@@ -128,6 +187,69 @@ struct PlayerDetailView: View {
                 InvitePlayerSheet(url: url)
             }
         }
+        .sheet(isPresented: $isParentInviteSheetPresented) {
+            NavigationStack {
+                Form {
+                    Section("Inviter un parent") {
+                        TextField("Adresse e-mail du parent", text: $parentInviteEmail)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                        TextField("Téléphone du parent", text: $parentInvitePhone)
+                            .keyboardType(.phonePad)
+                        Text("Au moins un des deux champs est requis.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .navigationTitle("Inviter un parent")
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Annuler") { isParentInviteSheetPresented = false }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Continuer") {
+                            let email = parentInviteEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let phone = parentInvitePhone.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !email.isEmpty || !phone.isEmpty else {
+                                viewModel.errorMessage = "Merci de renseigner au moins un e-mail ou un téléphone parent."
+                                return
+                            }
+                            isParentInviteSheetPresented = false
+                            Task {
+                                await viewModel.invitePlayer(
+                                    id: playerID,
+                                    email: email.isEmpty ? nil : email,
+                                    phone: phone.isEmpty ? nil : phone
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Supprimer ce parent de la fiche joueur ?",
+            isPresented: Binding(
+                get: { parentToDelete != nil },
+                set: { if !$0 { parentToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Supprimer le parent", role: .destructive) {
+                guard let parent = parentToDelete, let parentID = parent.parentId, !parentID.isEmpty else {
+                    parentToDelete = nil
+                    return
+                }
+                Task {
+                    _ = await viewModel.deleteParent(playerID: playerID, parentID: parentID)
+                    parentToDelete = nil
+                }
+            }
+            Button("Annuler", role: .cancel) {
+                parentToDelete = nil
+            }
+        }
         .alert("Erreur", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { _ in viewModel.errorMessage = nil }
@@ -144,6 +266,11 @@ struct PlayerDetailView: View {
         case .pending: return "Invitation en attente"
         case .accepted: return "Compte activé"
         }
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "—" }
+        return value
     }
 }
 
