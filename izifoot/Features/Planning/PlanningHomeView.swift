@@ -218,6 +218,9 @@ struct PlanningHomeView: View {
                 selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: storedPlanningDate)
                 await viewModel.load()
             }
+            .onAppear {
+                Task { await viewModel.load() }
+            }
             .onChange(of: selectedDate) { _, newValue in
                 storedPlanningDate = PlanningDateHelpers.storageKey(for: newValue)
             }

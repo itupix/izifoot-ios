@@ -13,6 +13,18 @@ enum DateFormatters {
         return formatter
     }()
 
+    static let iso8601WithFractionalAndSpace: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withSpaceBetweenDateAndTime]
+        return formatter
+    }()
+
+    static let iso8601NoFractionalAndSpace: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withSpaceBetweenDateAndTime]
+        return formatter
+    }()
+
     static let frenchDateTime: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "fr_FR")
@@ -30,7 +42,10 @@ enum DateFormatters {
     }()
 
     static func parseISODate(_ value: String) -> Date? {
-        iso8601WithFractional.date(from: value) ?? iso8601NoFractional.date(from: value)
+        iso8601WithFractional.date(from: value)
+            ?? iso8601NoFractional.date(from: value)
+            ?? iso8601WithFractionalAndSpace.date(from: value)
+            ?? iso8601NoFractionalAndSpace.date(from: value)
     }
 
     static func display(_ value: String) -> String {
