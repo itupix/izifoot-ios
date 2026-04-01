@@ -97,9 +97,19 @@ struct PlanningHomeView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(dayTrainings) { training in
-                                NavigationLink {
-                                    TrainingDetailView(training: training)
-                                } label: {
+                                if writable {
+                                    NavigationLink {
+                                        TrainingDetailView(training: training)
+                                    } label: {
+                                        PlanningEventRow(
+                                            title: "Entraînement",
+                                            subtitle: teamSubtitle(for: training.teamId),
+                                            systemImage: training.status == "CANCELLED" ? "xmark.circle.fill" : "soccerball",
+                                            tint: training.status == "CANCELLED" ? .red : .accentColor
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
                                     PlanningEventRow(
                                         title: "Entraînement",
                                         subtitle: teamSubtitle(for: training.teamId),
@@ -107,7 +117,6 @@ struct PlanningHomeView: View {
                                         tint: training.status == "CANCELLED" ? .red : .accentColor
                                     )
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
 
@@ -132,9 +141,19 @@ struct PlanningHomeView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(dayMatchdays) { matchday in
-                                NavigationLink {
-                                    MatchdayDetailView(matchday: matchday)
-                                } label: {
+                                if writable {
+                                    NavigationLink {
+                                        MatchdayDetailView(matchday: matchday)
+                                    } label: {
+                                        PlanningEventRow(
+                                            title: "Plateau — \(matchday.lieu ?? "Lieu non renseigné")",
+                                            subtitle: teamSubtitle(for: matchday.teamId),
+                                            systemImage: "trophy",
+                                            tint: .orange
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
                                     PlanningEventRow(
                                         title: "Plateau — \(matchday.lieu ?? "Lieu non renseigné")",
                                         subtitle: teamSubtitle(for: matchday.teamId),
@@ -142,7 +161,6 @@ struct PlanningHomeView: View {
                                         tint: .orange
                                     )
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
 
