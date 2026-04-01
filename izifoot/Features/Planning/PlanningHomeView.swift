@@ -77,6 +77,7 @@ struct PlanningHomeView: View {
     @State private var isDatePickerPresented = false
     @State private var isPlateauSheetPresented = false
     @State private var plateauLocation = ""
+    @State private var updatingTrainingIntentIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -103,7 +104,7 @@ struct PlanningHomeView: View {
                                     } label: {
                                         PlanningEventRow(
                                             title: "Entraînement",
-                                            subtitle: teamSubtitle(for: training.teamId),
+                                            subtitle: trainingSubtitle(for: training),
                                             systemImage: training.status == "CANCELLED" ? "xmark.circle.fill" : "soccerball",
                                             tint: training.status == "CANCELLED" ? .red : .accentColor
                                         )
@@ -112,10 +113,34 @@ struct PlanningHomeView: View {
                                 } else {
                                     PlanningEventRow(
                                         title: "Entraînement",
-                                        subtitle: teamSubtitle(for: training.teamId),
+                                        subtitle: trainingSubtitle(for: training),
                                         systemImage: training.status == "CANCELLED" ? "xmark.circle.fill" : "soccerball",
                                         tint: training.status == "CANCELLED" ? .red : .accentColor
                                     )
+                                }
+
+                                if isReadOnlyRole, training.canSetTrainingIntent == true {
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            Task { await setTrainingIntent(trainingID: training.id, present: true) }
+                                        } label: {
+                                            Text("Présent")
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(training.myTrainingIntent == "PRESENT" ? .green : .accentColor)
+                                        .disabled(updatingTrainingIntentIDs.contains(training.id))
+
+                                        Button {
+                                            Task { await setTrainingIntent(trainingID: training.id, present: false) }
+                                        } label: {
+                                            Text("Absent")
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .tint(training.myTrainingIntent == "ABSENT" ? .red : .secondary)
+                                        .disabled(updatingTrainingIntentIDs.contains(training.id))
+                                    }
                                 }
                             }
                         }
@@ -281,6 +306,11 @@ struct PlanningHomeView: View {
         return role == .direction || role == .coach
     }
 
+    private var isReadOnlyRole: Bool {
+        guard let role = authStore.me?.role else { return false }
+        return role == .player || role == .parent
+    }
+
     private var requiresSelection: Bool {
         guard let role = authStore.me?.role else { return false }
         return (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty
@@ -345,6 +375,32 @@ struct PlanningHomeView: View {
         guard let teamID else { return "Équipe: Non renseignée" }
         let teamName = teamScopeStore.teams.first(where: { $0.id == teamID })?.name ?? teamID
         return "Équipe: \(teamName)"
+    }
+
+    private func trainingSubtitle(for training: Training) -> String? {
+        var lines: [String] = []
+        if let teamSubtitle = teamSubtitle(for: training.teamId) {
+            lines.append(teamSubtitle)
+        }
+        if writable, let summary = training.intentSummary {
+            lines.append("Intentions: \(summary.presentCount)/\(summary.totalPlayers) présents")
+        }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+
+    private func setTrainingIntent(trainingID: String, present: Bool) async {
+        if updatingTrainingIntentIDs.contains(trainingID) { return }
+        updatingTrainingIntentIDs.insert(trainingID)
+        defer { updatingTrainingIntentIDs.remove(trainingID) }
+        do {
+            try await IzifootAPI().setTrainingIntent(trainingID: trainingID, present: present)
+            await viewModel.load()
+        } catch {
+            if !error.isCancellationError {
+                viewModel.errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func filterByScope<Item>(_ items: [Item], teamID: KeyPath<Item, String?>) -> [Item] {
@@ -468,6 +524,7 @@ private struct PlanningEventRow: View {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
 

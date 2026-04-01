@@ -386,6 +386,29 @@ struct Training: Codable, Identifiable {
     let date: String
     let status: String?
     let teamId: String?
+    let intentSummary: TrainingIntentSummary?
+    let myTrainingIntent: String?
+    let canSetTrainingIntent: Bool?
+}
+
+struct TrainingIntentSummary: Codable {
+    let presentCount: Int
+    let absentCount: Int
+    let unknownCount: Int
+    let totalPlayers: Int
+}
+
+struct TrainingIntentItem: Codable {
+    let playerId: String
+    let intent: String
+}
+
+struct TrainingIntentResponse: Codable {
+    let trainingId: String
+    let summary: TrainingIntentSummary
+    let myIntent: String?
+    let canRespond: Bool
+    let items: [TrainingIntentItem]?
 }
 
 struct Matchday: Codable, Identifiable {

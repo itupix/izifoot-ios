@@ -32,6 +32,7 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var trainingDrills: [TrainingDrill] = []
     @Published private(set) var drillCatalog: [Drill] = []
     @Published private(set) var roleEntries: [TrainingRoleEntry] = []
+    @Published private(set) var trainingIntentByPlayerID: [String: String] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var isSavingAttendance = false
     @Published private(set) var isSavingDrills = false
@@ -57,6 +58,7 @@ final class TrainingDetailViewModel: ObservableObject {
             async let trainingDrillsTask = api.trainingDrills(trainingID: training.id)
             async let drillsTask = api.allDrills()
             async let rolesTask = api.trainingRoles(trainingID: training.id)
+            async let intentsTask = api.trainingIntent(trainingID: training.id)
 
             players = try await playersTask.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             attendance = try await attendanceTask
@@ -67,6 +69,9 @@ final class TrainingDetailViewModel: ObservableObject {
             roleEntries = try await rolesTask.items.map {
                 TrainingRoleEntry(id: $0.id, role: $0.role, playerID: $0.playerId)
             }
+            let intents = try? await intentsTask
+            let nextIntentByPlayerID = Dictionary(uniqueKeysWithValues: (intents?.items ?? []).map { ($0.playerId, $0.intent) })
+            trainingIntentByPlayerID = nextIntentByPlayerID
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -397,6 +402,7 @@ struct TrainingDetailView: View {
         .sheet(isPresented: $isAttendanceSheetPresented) {
             AttendanceSelectionSheet(
                 players: filteredPlayers,
+                trainingIntentByPlayerID: viewModel.trainingIntentByPlayerID,
                 selectedPlayerIDs: $attendanceDraftPlayerIDs,
                 isSaving: viewModel.isSavingAttendance
             ) {
@@ -787,6 +793,7 @@ private struct AttendanceSelectionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let players: [Player]
+    let trainingIntentByPlayerID: [String: String]
     @Binding var selectedPlayerIDs: Set<String>
     let isSaving: Bool
     let onSave: () async -> String?
@@ -797,11 +804,13 @@ private struct AttendanceSelectionSheet: View {
 
     init(
         players: [Player],
+        trainingIntentByPlayerID: [String: String],
         selectedPlayerIDs: Binding<Set<String>>,
         isSaving: Bool,
         onSave: @escaping () async -> String?
     ) {
         self.players = players
+        self.trainingIntentByPlayerID = trainingIntentByPlayerID
         self._selectedPlayerIDs = selectedPlayerIDs
         self.isSaving = isSaving
         self.onSave = onSave
@@ -828,6 +837,7 @@ private struct AttendanceSelectionSheet: View {
                                 Text(player.name)
                                     .foregroundStyle(.primary)
                                 Spacer()
+                                intentBadge(for: trainingIntentByPlayerID[player.id] ?? "UNKNOWN")
                                 Image(systemName: selectedPlayerIDs.contains(player.id) ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(selectedPlayerIDs.contains(player.id) ? Color.green : Color.secondary)
                             }
@@ -894,6 +904,24 @@ private struct AttendanceSelectionSheet: View {
             } else {
                 dismiss()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func intentBadge(for intent: String) -> some View {
+        let normalized = intent.uppercased()
+        if normalized == "PRESENT" {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .accessibilityLabel("Intention: présent")
+        } else if normalized == "ABSENT" {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.red)
+                .accessibilityLabel("Intention: absent")
+        } else {
+            Image(systemName: "questionmark.circle.fill")
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Intention: inconnue")
         }
     }
 }

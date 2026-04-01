@@ -39,6 +39,7 @@ enum APIRoutes {
     enum Trainings {
         static let list = "/trainings"
         static func byID(_ id: String) -> String { "/trainings/\(id.urlEncoded)" }
+        static func intent(_ trainingID: String) -> String { "/trainings/\(trainingID.urlEncoded)/intent" }
         static func attendance(_ trainingID: String) -> String { "/trainings/\(trainingID.urlEncoded)/attendance" }
         static func drills(_ trainingID: String) -> String { "/trainings/\(trainingID.urlEncoded)/drills" }
         static func drillByID(_ trainingID: String, trainingDrillID: String) -> String {

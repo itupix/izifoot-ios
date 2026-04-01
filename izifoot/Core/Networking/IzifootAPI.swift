@@ -325,6 +325,21 @@ final class IzifootAPI {
         )
     }
 
+    func trainingIntent(trainingID: String) async throws -> TrainingIntentResponse {
+        try await client.get(APIRoutes.Trainings.intent(trainingID), responseType: TrainingIntentResponse.self)
+    }
+
+    func setTrainingIntent(trainingID: String, present: Bool) async throws {
+        struct Payload: Encodable {
+            let present: Bool
+        }
+        _ = try await client.post(
+            APIRoutes.Trainings.intent(trainingID),
+            body: Payload(present: present),
+            responseType: EmptyResponse.self
+        )
+    }
+
     func matchdays(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Matchday> {
         try await client.get(
             paginatedPath(APIRoutes.Matchday.list, limit: limit, offset: offset),
