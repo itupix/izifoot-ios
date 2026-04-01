@@ -27,7 +27,7 @@ final class ClubHomeViewModel: ObservableObject {
             coaches = try await coachesTask
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -36,7 +36,7 @@ final class ClubHomeViewModel: ObservableObject {
             let newTeam = try await api.createTeam(name: name, category: category, format: format)
             teams.insert(newTeam, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -53,7 +53,7 @@ final class ClubHomeViewModel: ObservableObject {
             club = updatedClub
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }

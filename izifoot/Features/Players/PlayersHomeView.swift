@@ -33,7 +33,7 @@ final class PlayersHomeViewModel: ObservableObject {
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -50,7 +50,7 @@ final class PlayersHomeViewModel: ObservableObject {
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -73,7 +73,7 @@ final class PlayersHomeViewModel: ObservableObject {
             )
             players.insert(created, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }
@@ -236,7 +236,7 @@ final class TeamStatsViewModel: ObservableObject {
 
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 

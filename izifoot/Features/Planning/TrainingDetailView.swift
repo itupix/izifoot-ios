@@ -69,7 +69,7 @@ final class TrainingDetailViewModel: ObservableObject {
             }
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -81,7 +81,7 @@ final class TrainingDetailViewModel: ObservableObject {
             training = try await api.updateTraining(id: training.id, status: cancelled ? "CANCELLED" : "PLANNED")
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -94,7 +94,7 @@ final class TrainingDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -118,7 +118,7 @@ final class TrainingDetailViewModel: ObservableObject {
             return nil
         } catch {
             attendance = previousAttendance
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return error.localizedDescription
         }
     }
@@ -136,7 +136,7 @@ final class TrainingDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -151,7 +151,7 @@ final class TrainingDetailViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             trainingDrills = previous
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
 
         isSavingDrills = false
@@ -183,7 +183,7 @@ final class TrainingDetailViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             trainingDrills = previous
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
 
         isSavingDrills = false
@@ -213,7 +213,7 @@ final class TrainingDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }

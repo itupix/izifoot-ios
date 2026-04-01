@@ -98,7 +98,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             }()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -132,7 +132,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             attendance = previous
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
 
         isUpdatingAttendance = false
@@ -161,7 +161,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             return nil
         } catch {
             attendance = previousAttendance
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return error.localizedDescription
         }
     }
@@ -180,7 +180,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -194,7 +194,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             publicShareURL = share.url
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -207,7 +207,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -221,7 +221,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             await reloadMatchesState()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -260,7 +260,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -274,7 +274,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             await reloadMatchesState()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -294,14 +294,14 @@ final class MatchdayDetailViewModel: ObservableObject {
             do {
                 try await regenerateMatchesFromPlanning(data: data)
             } catch {
-                errorMessage = error.localizedDescription
+                if !error.isCancellationError { errorMessage = error.localizedDescription }
             }
 
             await reloadMatchesState()
             planningSaveRevision += 1
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -322,7 +322,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -2079,7 +2079,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             hasPendingChanges = false
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -2399,7 +2399,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             hasPendingChanges = false
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 

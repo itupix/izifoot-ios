@@ -198,7 +198,7 @@ struct AccountView: View {
             profileErrorMessage = "Profil mis à jour."
             return true
         } catch {
-            profileErrorMessage = error.localizedDescription
+            if !error.isCancellationError { profileErrorMessage = error.localizedDescription }
             return false
         }
     }

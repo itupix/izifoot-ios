@@ -45,7 +45,7 @@ final class PlayerDetailViewModel: ObservableObject {
             }
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -63,7 +63,7 @@ final class PlayerDetailViewModel: ObservableObject {
                 errorMessage = "Invitation envoyée mais lien indisponible."
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -76,7 +76,7 @@ final class PlayerDetailViewModel: ObservableObject {
             await load(id: playerID)
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
     }

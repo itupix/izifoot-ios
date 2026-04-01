@@ -25,7 +25,7 @@ final class PlanningHomeViewModel: ObservableObject {
             matchdays = try await matchdaysTask.sorted { $0.date > $1.date }
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -38,7 +38,7 @@ final class PlanningHomeViewModel: ObservableObject {
             )
             trainings.insert(newTraining, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -61,7 +61,7 @@ final class PlanningHomeViewModel: ObservableObject {
             )
             matchdays.insert(newMatchday, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }

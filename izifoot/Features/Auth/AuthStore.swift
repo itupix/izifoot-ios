@@ -60,7 +60,7 @@ final class AuthStore: ObservableObject {
             me = refreshedMe
             tokenStore.cachedMe = refreshedMe
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -82,7 +82,7 @@ final class AuthStore: ObservableObject {
             me = refreshedMe
             tokenStore.cachedMe = refreshedMe
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -98,7 +98,7 @@ final class AuthStore: ObservableObject {
                 tokenStore.cachedMe = nil
                 me = nil
             } else {
-                errorMessage = error.localizedDescription
+                if !error.isCancellationError { errorMessage = error.localizedDescription }
             }
         }
     }

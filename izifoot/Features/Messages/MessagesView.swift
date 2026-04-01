@@ -30,7 +30,7 @@ final class MessagesViewModel: ObservableObject {
                 .sorted { lhs, rhs in lhs.createdAt > rhs.createdAt }
             NotificationCenter.default.post(name: .teamMessagesDidRefresh, object: nil)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -47,7 +47,7 @@ final class MessagesViewModel: ObservableObject {
             draft = ""
             messages.insert(created, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -79,7 +79,7 @@ final class MessagesViewModel: ObservableObject {
                 )
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }

@@ -37,7 +37,7 @@ final class DrillsHomeViewModel: ObservableObject {
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -55,7 +55,7 @@ final class DrillsHomeViewModel: ObservableObject {
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
@@ -78,7 +78,7 @@ final class DrillsHomeViewModel: ObservableObject {
             )
             drills.insert(created, at: 0)
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }

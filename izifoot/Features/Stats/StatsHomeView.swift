@@ -32,7 +32,7 @@ final class StatsHomeViewModel: ObservableObject {
             drillsCount = try await drills.items.count
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }

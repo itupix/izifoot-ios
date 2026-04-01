@@ -22,7 +22,7 @@ final class PublicMatchdayViewModel: ObservableObject {
             matchday = try await api.publicMatchday(token: token)
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }

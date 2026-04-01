@@ -26,6 +26,26 @@ enum APIError: Error, LocalizedError {
     }
 }
 
+extension Error {
+    var isCancellationError: Bool {
+        if self is CancellationError { return true }
+
+        if let apiError = self as? APIError {
+            if case let .transport(innerError) = apiError {
+                return innerError.isCancellationError
+            }
+            return false
+        }
+
+        if let urlError = self as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        let nsError = self as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+}
+
 protocol APIClientProtocol {
     func get<T: Decodable>(_ path: String, responseType: T.Type) async throws -> T
     func post<T: Decodable, Body: Encodable>(_ path: String, body: Body, responseType: T.Type) async throws -> T

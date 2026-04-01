@@ -21,7 +21,7 @@ final class DrillDetailViewModel: ObservableObject {
             drill = try await api.drill(id: id)
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 }
