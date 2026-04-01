@@ -24,8 +24,16 @@ private struct AppChromeModifier: ViewModifier {
             .toolbar {
                 if showsBranding {
                     ToolbarItem(placement: .principal) {
-                        Text("izifoot")
-                            .font(.headline.weight(.semibold))
+                        HStack(spacing: 0) {
+                            Image("LogoHeader")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 150, height: 30, alignment: .leading)
+                                .allowsHitTesting(false)
+                                .accessibilityLabel("izifoot")
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: 220, alignment: .leading)
                     }
                 }
 

@@ -200,6 +200,38 @@ struct TeamMessagesUnreadCountResponse: Codable {
     let count: Int
 }
 
+struct MessageConversation: Codable, Identifiable {
+    let id: String
+    let type: String
+    let title: String
+    let subtitle: String?
+    let lastMessagePreview: String?
+    let lastMessageAt: String?
+}
+
+struct ConversationListResponse: Codable {
+    let items: [MessageConversation]
+}
+
+struct ConversationMessageSender: Codable {
+    let id: String
+    let firstName: String?
+    let lastName: String?
+    let role: AccountRole?
+}
+
+struct ConversationMessage: Codable, Identifiable {
+    let id: String
+    let content: String
+    let createdAt: String
+    let sender: ConversationMessageSender?
+}
+
+struct ConversationMessagesResponse: Codable {
+    let conversation: MessageConversation?
+    let items: [ConversationMessage]
+}
+
 struct Club: Codable, Identifiable {
     let id: String
     let name: String

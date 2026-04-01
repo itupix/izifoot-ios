@@ -394,7 +394,7 @@ struct PlayersHomeView: View {
                 }
             }
             .navigationTitle("Mon équipe")
-            .appChrome(showsBranding: false)
+            .appChrome()
             .task {
                 await viewModel.load()
             }

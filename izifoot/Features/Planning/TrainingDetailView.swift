@@ -290,6 +290,7 @@ struct TrainingDetailView: View {
     @State private var trainingTimeDraft = Date()
     @State private var trainingEndTimeDraft = ""
     @State private var trainingEndTimePicker = Date()
+    @State private var isTrainingInfoSheetPresented = false
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
@@ -324,18 +325,17 @@ struct TrainingDetailView: View {
                     training: viewModel.training,
                     writable: writable && !isCancelled,
                     isSaving: viewModel.isUpdatingStatus,
-                    draftStartTime: $trainingTimeDraft,
-                    draftEndTime: $trainingEndTimeDraft,
-                    endTimePicker: $trainingEndTimePicker
-                ) {
-                    Task {
-                        let normalizedEndTime = trainingEndTimeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        await viewModel.updateTrainingSchedule(
-                            startDate: trainingTimeDraft,
-                            endTime: normalizedEndTime.isEmpty ? nil : normalizedEndTime
-                        )
+                    onEdit: {
+                        if let parsed = DateFormatters.parseISODate(viewModel.training.date) {
+                            trainingTimeDraft = parsed
+                        }
+                        trainingEndTimeDraft = viewModel.training.endTime ?? ""
+                        if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
+                            trainingEndTimePicker = parsedEndTime
+                        }
+                        isTrainingInfoSheetPresented = true
                     }
-                }
+                )
 
                 ExercisesCard(
                     trainingDrills: viewModel.trainingDrills,
@@ -476,6 +476,19 @@ struct TrainingDetailView: View {
                 pendingDrillIDToAdd = drillID
             }
             .presentationDetents([.large])
+        }
+        .sheet(isPresented: $isTrainingInfoSheetPresented) {
+            TrainingInfoSheet(
+                startTime: $trainingTimeDraft,
+                endTime: $trainingEndTimeDraft,
+                endTimePicker: $trainingEndTimePicker,
+                isSaving: viewModel.isUpdatingStatus
+            ) { startTime, endTime in
+                Task {
+                    await viewModel.updateTrainingSchedule(startDate: startTime, endTime: endTime)
+                }
+            }
+            .presentationDetents([.medium])
         }
         .sheet(item: $roleEditor) { editor in
             RoleEditorSheet(
@@ -700,23 +713,59 @@ private struct TrainingInfoCard: View {
     let training: Training
     let writable: Bool
     let isSaving: Bool
-    @Binding var draftStartTime: Date
-    @Binding var draftEndTime: String
-    @Binding var endTimePicker: Date
-    let onSave: () -> Void
+    let onEdit: () -> Void
 
     var body: some View {
         DetailCard {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 SectionHeaderLabel(title: "Informations", systemImage: "info.circle")
                 Spacer()
+
+                if writable {
+                    Button("Modifier") {
+                        onEdit()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSaving)
+                }
             }
 
-            if writable {
-                VStack(alignment: .leading, spacing: 10) {
+            Text("Horaire: \(trainingTimeLabel(training.date, endTime: training.endTime) ?? "—")")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func trainingTimeLabel(_ isoDate: String, endTime: String?) -> String? {
+        guard let date = DateFormatters.parseISODate(isoDate) else { return nil }
+        let start = TrainingDetailView.hhmm(from: date)
+        if let endTime, !endTime.isEmpty {
+            return "\(start) - \(endTime)"
+        }
+        return start
+    }
+}
+
+private struct TrainingInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var startTime: Date
+    @Binding var endTime: String
+    @Binding var endTimePicker: Date
+    let isSaving: Bool
+    let onSave: (Date, String?) -> Void
+
+    @State private var isSubmitting = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Informations") {
                     DatePicker(
                         "Horaire",
-                        selection: $draftStartTime,
+                        selection: $startTime,
                         displayedComponents: [.hourAndMinute]
                     )
                     .datePickerStyle(.compact)
@@ -727,42 +776,52 @@ private struct TrainingInfoCard: View {
                             get: { endTimePicker },
                             set: { newValue in
                                 endTimePicker = newValue
-                                draftEndTime = TrainingDetailView.hhmm(from: newValue)
+                                endTime = TrainingDetailView.hhmm(from: newValue)
                             }
                         ),
                         displayedComponents: [.hourAndMinute]
                     )
                     .datePickerStyle(.compact)
 
-                    HStack(spacing: 10) {
-                        Button("Effacer la fin") {
-                            draftEndTime = ""
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isSaving || draftEndTime.isEmpty)
-
-                        Button("Enregistrer") {
-                            onSave()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isSaving)
+                    Button("Effacer l'heure de fin", role: .destructive) {
+                        endTime = ""
                     }
+                    .disabled(isSaving || isSubmitting || endTime.isEmpty)
                 }
-            } else {
-                Text("Horaire: \(trainingTimeLabel(training.date, endTime: training.endTime) ?? "—")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            }
+            .navigationTitle("Informations")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .disabled(isSaving || isSubmitting)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        isSubmitting = true
+                        let normalizedEndTime = endTime.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSave(startTime, normalizedEndTime.isEmpty ? nil : normalizedEndTime)
+                    } label: {
+                        if isSaving || isSubmitting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                    .disabled(isSaving || isSubmitting)
+                }
+            }
+            .onChange(of: isSaving) { oldValue, newValue in
+                if oldValue == true, newValue == false, isSubmitting {
+                    dismiss()
+                }
             }
         }
-    }
-
-    private func trainingTimeLabel(_ isoDate: String, endTime: String?) -> String? {
-        guard let date = DateFormatters.parseISODate(isoDate) else { return nil }
-        let start = date.formatted(date: .omitted, time: .shortened)
-        if let endTime, !endTime.isEmpty {
-            return "\(start) - \(endTime)"
-        }
-        return start
     }
 }
 

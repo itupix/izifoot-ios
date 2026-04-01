@@ -243,6 +243,36 @@ final class IzifootAPI {
         return max(0, response.count)
     }
 
+    func messageConversations(teamID: String? = nil) async throws -> [MessageConversation] {
+        let path: String
+        if let teamID, !teamID.isEmpty {
+            path = appendQueryItems(APIRoutes.Messages.conversations, items: [URLQueryItem(name: "teamId", value: teamID)])
+        } else {
+            path = APIRoutes.Messages.conversations
+        }
+        let response = try await client.get(path, responseType: ConversationListResponse.self)
+        return response.items
+    }
+
+    func conversationMessages(conversationID: String) async throws -> ConversationMessagesResponse {
+        try await client.get(
+            APIRoutes.Messages.conversationMessages(conversationID),
+            responseType: ConversationMessagesResponse.self
+        )
+    }
+
+    func sendConversationMessage(conversationID: String, content: String) async throws -> ConversationMessage {
+        struct Payload: Encodable {
+            let content: String
+        }
+
+        return try await client.post(
+            APIRoutes.Messages.conversationMessages(conversationID),
+            body: Payload(content: content),
+            responseType: ConversationMessage.self
+        )
+    }
+
     func createPlayer(
         firstName: String,
         lastName: String,

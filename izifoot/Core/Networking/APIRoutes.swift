@@ -105,4 +105,9 @@ enum APIRoutes {
         static let unreadCount = "/team-messages/unread-count"
         static func like(_ id: String) -> String { "/team-messages/\(id.urlEncoded)/reactions/like" }
     }
+
+    enum Messages {
+        static let conversations = "/messages/conversations"
+        static func conversationMessages(_ id: String) -> String { "/messages/conversations/\(id.urlEncoded)/messages" }
+    }
 }

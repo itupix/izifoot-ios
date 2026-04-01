@@ -16,7 +16,9 @@ struct MainShellView: View {
                 }
                 .tag(AppTab.planning)
 
-            MessagesView()
+            NavigationStack {
+                MessagesView()
+            }
                 .tabItem {
                     Label("Messages", systemImage: "message")
                 }
