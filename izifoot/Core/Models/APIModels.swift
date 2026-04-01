@@ -384,6 +384,7 @@ struct PlayerInviteResponse: Decodable {
 struct Training: Codable, Identifiable {
     let id: String
     let date: String
+    let endTime: String?
     let status: String?
     let teamId: String?
     let intentSummary: TrainingIntentSummary?

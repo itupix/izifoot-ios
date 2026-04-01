@@ -722,15 +722,21 @@ final class IzifootAPI {
         return response.items
     }
 
-    func updateTraining(id: String, status: String? = nil, dateISO8601: String? = nil) async throws -> Training {
+    func updateTraining(
+        id: String,
+        status: String? = nil,
+        dateISO8601: String? = nil,
+        endTime: String? = nil
+    ) async throws -> Training {
         struct UpdateTrainingPayload: Encodable {
             let status: String?
             let date: String?
+            let endTime: String?
         }
 
         return try await client.put(
             APIRoutes.Trainings.byID(id),
-            body: UpdateTrainingPayload(status: status, date: dateISO8601),
+            body: UpdateTrainingPayload(status: status, date: dateISO8601, endTime: endTime),
             responseType: Training.self
         )
     }

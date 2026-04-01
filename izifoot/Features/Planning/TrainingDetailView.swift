@@ -90,14 +90,15 @@ final class TrainingDetailViewModel: ObservableObject {
         }
     }
 
-    func updateTrainingTime(_ date: Date) async {
+    func updateTrainingSchedule(startDate: Date, endTime: String?) async {
         isUpdatingStatus = true
         defer { isUpdatingStatus = false }
 
         do {
             training = try await api.updateTraining(
                 id: training.id,
-                dateISO8601: DateFormatters.isoString(from: date)
+                dateISO8601: DateFormatters.isoString(from: startDate),
+                endTime: endTime
             )
             errorMessage = nil
         } catch {
@@ -287,6 +288,8 @@ struct TrainingDetailView: View {
     @State private var bannerMessage: String?
     @State private var bannerToken = UUID()
     @State private var trainingTimeDraft = Date()
+    @State private var trainingEndTimeDraft = ""
+    @State private var trainingEndTimePicker = Date()
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
@@ -321,9 +324,17 @@ struct TrainingDetailView: View {
                     training: viewModel.training,
                     writable: writable && !isCancelled,
                     isSaving: viewModel.isUpdatingStatus,
-                    draftTime: $trainingTimeDraft
+                    draftStartTime: $trainingTimeDraft,
+                    draftEndTime: $trainingEndTimeDraft,
+                    endTimePicker: $trainingEndTimePicker
                 ) {
-                    Task { await viewModel.updateTrainingTime(trainingTimeDraft) }
+                    Task {
+                        let normalizedEndTime = trainingEndTimeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        await viewModel.updateTrainingSchedule(
+                            startDate: trainingTimeDraft,
+                            endTime: normalizedEndTime.isEmpty ? nil : normalizedEndTime
+                        )
+                    }
                 }
 
                 ExercisesCard(
@@ -423,10 +434,23 @@ struct TrainingDetailView: View {
             if let parsed = DateFormatters.parseISODate(viewModel.training.date) {
                 trainingTimeDraft = parsed
             }
+            trainingEndTimeDraft = viewModel.training.endTime ?? ""
+            if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
+                trainingEndTimePicker = parsedEndTime
+            }
         }
         .onChange(of: viewModel.training.date) { _, newValue in
             if let parsed = DateFormatters.parseISODate(newValue) {
                 trainingTimeDraft = parsed
+                if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: parsed) {
+                    trainingEndTimePicker = parsedEndTime
+                }
+            }
+        }
+        .onChange(of: viewModel.training.endTime) { _, newValue in
+            trainingEndTimeDraft = newValue ?? ""
+            if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
+                trainingEndTimePicker = parsedEndTime
             }
         }
         .refreshable {
@@ -589,6 +613,25 @@ struct TrainingDetailView: View {
         )
         return presentPlayers.filter { !assignedElsewhere.contains($0.id) || $0.id == editor.entry.playerID }
     }
+
+    fileprivate static func dateFromHHmm(_ value: String, on baseDate: Date) -> Date? {
+        let parts = value.split(separator: ":")
+        guard parts.count == 2 else { return nil }
+        guard let hour = Int(parts[0]), let minute = Int(parts[1]) else { return nil }
+        guard (0 ... 23).contains(hour), (0 ... 59).contains(minute) else { return nil }
+
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: baseDate)
+        components.hour = hour
+        components.minute = minute
+        return Calendar.current.date(from: components)
+    }
+
+    fileprivate static func hhmm(from date: Date) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        return String(format: "%02d:%02d", hour, minute)
+    }
 }
 
 private struct PlayersAttendanceCard: View {
@@ -657,7 +700,9 @@ private struct TrainingInfoCard: View {
     let training: Training
     let writable: Bool
     let isSaving: Bool
-    @Binding var draftTime: Date
+    @Binding var draftStartTime: Date
+    @Binding var draftEndTime: String
+    @Binding var endTimePicker: Date
     let onSave: () -> Void
 
     var body: some View {
@@ -668,33 +713,56 @@ private struct TrainingInfoCard: View {
             }
 
             if writable {
-                HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     DatePicker(
                         "Horaire",
-                        selection: $draftTime,
+                        selection: $draftStartTime,
                         displayedComponents: [.hourAndMinute]
                     )
                     .datePickerStyle(.compact)
 
-                    Spacer()
+                    DatePicker(
+                        "Heure de fin",
+                        selection: Binding(
+                            get: { endTimePicker },
+                            set: { newValue in
+                                endTimePicker = newValue
+                                draftEndTime = TrainingDetailView.hhmm(from: newValue)
+                            }
+                        ),
+                        displayedComponents: [.hourAndMinute]
+                    )
+                    .datePickerStyle(.compact)
 
-                    Button("Enregistrer") {
-                        onSave()
+                    HStack(spacing: 10) {
+                        Button("Effacer la fin") {
+                            draftEndTime = ""
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSaving || draftEndTime.isEmpty)
+
+                        Button("Enregistrer") {
+                            onSave()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSaving)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isSaving)
                 }
             } else {
-                Text("Horaire: \(trainingTimeLabel(training.date) ?? "—")")
+                Text("Horaire: \(trainingTimeLabel(training.date, endTime: training.endTime) ?? "—")")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func trainingTimeLabel(_ isoDate: String) -> String? {
+    private func trainingTimeLabel(_ isoDate: String, endTime: String?) -> String? {
         guard let date = DateFormatters.parseISODate(isoDate) else { return nil }
-        return date.formatted(date: .omitted, time: .shortened)
+        let start = date.formatted(date: .omitted, time: .shortened)
+        if let endTime, !endTime.isEmpty {
+            return "\(start) - \(endTime)"
+        }
+        return start
     }
 }
 
