@@ -398,12 +398,6 @@ struct PlayersHomeView: View {
             .task {
                 await viewModel.load()
             }
-            .refreshable {
-                await viewModel.load()
-                if selectedTab == .stats {
-                    await statsViewModel.load(players: viewModel.players)
-                }
-            }
             .sheet(isPresented: $isCreateSheetPresented) {
                 CreatePlayerSheet { payload in
                     await viewModel.create(
@@ -472,6 +466,12 @@ struct PlayersHomeView: View {
             playersSection
         }
         .listStyle(.insetGrouped)
+        .refreshable {
+            await viewModel.load()
+            if selectedTab == .stats {
+                await statsViewModel.load(players: viewModel.players)
+            }
+        }
     }
 
     private var tacticList: some View {
@@ -490,6 +490,12 @@ struct PlayersHomeView: View {
             tacticSection
         }
         .listStyle(.insetGrouped)
+        .refreshable {
+            await viewModel.load()
+            if selectedTab == .stats {
+                await statsViewModel.load(players: viewModel.players)
+            }
+        }
     }
 
     private var statsList: some View {
@@ -508,6 +514,12 @@ struct PlayersHomeView: View {
             statsSection
         }
         .listStyle(.insetGrouped)
+        .refreshable {
+            await viewModel.load()
+            if selectedTab == .stats {
+                await statsViewModel.load(players: viewModel.players)
+            }
+        }
     }
 
     private var playersSection: some View {

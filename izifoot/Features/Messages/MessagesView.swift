@@ -123,9 +123,6 @@ struct MessagesView: View {
         .task {
             await viewModel.load()
         }
-        .refreshable {
-            await viewModel.load()
-        }
         .onTapGesture {
             isComposerFocused = false
         }
@@ -180,20 +177,29 @@ struct MessagesView: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading {
-            VStack {
+            ScrollView {
                 ProgressView("Chargement des messages...")
                     .padding(.top, 24)
-                Spacer()
+                    .frame(maxWidth: .infinity)
+            }
+            .refreshable {
+                await viewModel.load()
             }
         } else if viewModel.messages.isEmpty {
-            VStack(spacing: 10) {
-                Image(systemName: "message")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                Text("Aucun message pour le moment")
-                    .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(spacing: 10) {
+                    Image(systemName: "message")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("Aucun message pour le moment")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 24)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .refreshable {
+                await viewModel.load()
+            }
         } else {
             List(viewModel.messages) { message in
                 VStack(alignment: .leading, spacing: 6) {
@@ -239,6 +245,9 @@ struct MessagesView: View {
                 .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
+            .refreshable {
+                await viewModel.load()
+            }
         }
     }
 

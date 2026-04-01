@@ -13,5 +13,6 @@ struct RootView: View {
                 AuthView()
             }
         }
+        .scrollBounceBehavior(.always)
     }
 }

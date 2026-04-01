@@ -77,6 +77,15 @@ struct AccountView: View {
                 phone = me.phone ?? ""
                 await loadTeamsAndChild(for: me)
             }
+            .refreshable {
+                await authStore.refreshMe()
+                guard let me = authStore.me else { return }
+                firstName = me.firstName ?? ""
+                lastName = me.lastName ?? ""
+                email = me.email
+                phone = me.phone ?? ""
+                await loadTeamsAndChild(for: me)
+            }
             .sheet(isPresented: $isEditSheetPresented) {
                 NavigationStack {
                     Form {
