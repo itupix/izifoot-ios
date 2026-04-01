@@ -379,6 +379,9 @@ struct PlanningHomeView: View {
 
     private func trainingSubtitle(for training: Training) -> String? {
         var lines: [String] = []
+        if let trainingTime = trainingTimeSubtitle(from: training.date) {
+            lines.append(trainingTime)
+        }
         if let teamSubtitle = teamSubtitle(for: training.teamId) {
             lines.append(teamSubtitle)
         }
@@ -387,6 +390,11 @@ struct PlanningHomeView: View {
         }
         guard !lines.isEmpty else { return nil }
         return lines.joined(separator: "\n")
+    }
+
+    private func trainingTimeSubtitle(from isoDate: String) -> String? {
+        guard let date = DateFormatters.parseISODate(isoDate) else { return nil }
+        return "Horaire: \(date.formatted(date: .omitted, time: .shortened))"
     }
 
     private func setTrainingIntent(trainingID: String, present: Bool) async {

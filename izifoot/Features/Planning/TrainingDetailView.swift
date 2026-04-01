@@ -90,6 +90,21 @@ final class TrainingDetailViewModel: ObservableObject {
         }
     }
 
+    func updateTrainingTime(_ date: Date) async {
+        isUpdatingStatus = true
+        defer { isUpdatingStatus = false }
+
+        do {
+            training = try await api.updateTraining(
+                id: training.id,
+                dateISO8601: DateFormatters.isoString(from: date)
+            )
+            errorMessage = nil
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+        }
+    }
+
     func deleteTraining() async -> Bool {
         isDeleting = true
         defer { isDeleting = false }
@@ -271,6 +286,7 @@ struct TrainingDetailView: View {
     @State private var isDeleteConfirmationPresented = false
     @State private var bannerMessage: String?
     @State private var bannerToken = UUID()
+    @State private var trainingTimeDraft = Date()
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
@@ -299,6 +315,15 @@ struct TrainingDetailView: View {
                 ) {
                     attendanceDraftPlayerIDs = presentPlayerIDs
                     isAttendanceSheetPresented = true
+                }
+
+                TrainingInfoCard(
+                    training: viewModel.training,
+                    writable: writable && !isCancelled,
+                    isSaving: viewModel.isUpdatingStatus,
+                    draftTime: $trainingTimeDraft
+                ) {
+                    Task { await viewModel.updateTrainingTime(trainingTimeDraft) }
                 }
 
                 ExercisesCard(
@@ -395,6 +420,14 @@ struct TrainingDetailView: View {
         }
         .task {
             await viewModel.load()
+            if let parsed = DateFormatters.parseISODate(viewModel.training.date) {
+                trainingTimeDraft = parsed
+            }
+        }
+        .onChange(of: viewModel.training.date) { _, newValue in
+            if let parsed = DateFormatters.parseISODate(newValue) {
+                trainingTimeDraft = parsed
+            }
         }
         .refreshable {
             await viewModel.load()
@@ -617,6 +650,51 @@ private struct PlayersAttendanceCard: View {
 
     private func displayName(for player: Player) -> String {
         player.firstName ?? player.name
+    }
+}
+
+private struct TrainingInfoCard: View {
+    let training: Training
+    let writable: Bool
+    let isSaving: Bool
+    @Binding var draftTime: Date
+    let onSave: () -> Void
+
+    var body: some View {
+        DetailCard {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                SectionHeaderLabel(title: "Informations", systemImage: "info.circle")
+                Spacer()
+            }
+
+            if writable {
+                HStack(spacing: 12) {
+                    DatePicker(
+                        "Horaire",
+                        selection: $draftTime,
+                        displayedComponents: [.hourAndMinute]
+                    )
+                    .datePickerStyle(.compact)
+
+                    Spacer()
+
+                    Button("Enregistrer") {
+                        onSave()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSaving)
+                }
+            } else {
+                Text("Horaire: \(trainingTimeLabel(training.date) ?? "—")")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func trainingTimeLabel(_ isoDate: String) -> String? {
+        guard let date = DateFormatters.parseISODate(isoDate) else { return nil }
+        return date.formatted(date: .omitted, time: .shortened)
     }
 }
 
