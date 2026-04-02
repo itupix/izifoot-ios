@@ -123,6 +123,20 @@ final class IzifootAPI {
         )
     }
 
+    func registerPushToken(_ token: String, enabled: Bool = true) async throws {
+        struct PushTokenPayload: Encodable {
+            let token: String
+            let platform: String
+            let enabled: Bool
+        }
+
+        _ = try await client.post(
+            APIRoutes.mePushToken,
+            body: PushTokenPayload(token: token, platform: "IOS", enabled: enabled),
+            responseType: EmptyResponse.self
+        )
+    }
+
     func myClub() async throws -> Club {
         try await client.get(APIRoutes.Clubs.me, responseType: Club.self)
     }

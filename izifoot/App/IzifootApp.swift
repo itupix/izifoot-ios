@@ -2,8 +2,10 @@ import SwiftUI
 
 @main
 struct IzifootApp: App {
+    @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @StateObject private var authStore = AuthStore()
     @StateObject private var teamScopeStore = TeamScopeStore()
+    @StateObject private var pushManager = PushNotificationManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -11,12 +13,19 @@ struct IzifootApp: App {
                 .environmentObject(authStore)
                 .environmentObject(teamScopeStore)
                 .task {
+                    pushManager.configure()
                     await authStore.restoreSessionIfPossible()
                     await teamScopeStore.bootstrap(authStore: authStore)
+                    await MainActor.run {
+                        pushManager.updateAuthenticatedUserID(authStore.me?.id)
+                    }
                 }
                 .onChange(of: authStore.me?.id) { _, _ in
                     Task {
                         await teamScopeStore.bootstrap(authStore: authStore)
+                        await MainActor.run {
+                            pushManager.updateAuthenticatedUserID(authStore.me?.id)
+                        }
                     }
                 }
                 .onChange(of: teamScopeStore.selectedTeamID) { _, _ in
