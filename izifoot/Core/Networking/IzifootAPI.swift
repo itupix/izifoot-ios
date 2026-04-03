@@ -137,6 +137,15 @@ final class IzifootAPI {
         )
     }
 
+    func resetPushBadge() async throws {
+        struct EmptyPayload: Encodable {}
+        _ = try await client.post(
+            APIRoutes.mePushBadgeReset,
+            body: EmptyPayload(),
+            responseType: EmptyResponse.self
+        )
+    }
+
     func myClub() async throws -> Club {
         try await client.get(APIRoutes.Clubs.me, responseType: Club.self)
     }

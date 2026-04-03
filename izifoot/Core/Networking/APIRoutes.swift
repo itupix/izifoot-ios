@@ -13,6 +13,7 @@ enum APIRoutes {
     static let meProfile = "/me/profile"
     static let meChild = "/me/child"
     static let mePushToken = "/me/push-token"
+    static let mePushBadgeReset = "/me/push-badge/reset"
 
     enum Clubs {
         static let me = "/clubs/me"

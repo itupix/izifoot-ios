@@ -10,6 +10,7 @@ final class PushNotificationManager: NSObject {
     private var deviceTokenHex: String?
     private var lastSyncedKey: String?
     private var isConfigured = false
+    private var retryTask: Task<Void, Never>?
 
     private override init() {
         super.init()
@@ -43,6 +44,7 @@ final class PushNotificationManager: NSObject {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         guard !token.isEmpty else { return }
         deviceTokenHex = token
+        print("[push] APNs token received: \(token.prefix(16))...")
         Task { await self.syncTokenIfPossible() }
     }
 
@@ -77,16 +79,23 @@ final class PushNotificationManager: NSObject {
         do {
             try await api.registerPushToken(token, enabled: true)
             lastSyncedKey = syncKey
+            print("[push] token synced for user \(userID)")
         } catch {
-            #if DEBUG
             print("[push] token sync failed: \(error.localizedDescription)")
-            #endif
+            retryTask?.cancel()
+            retryTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.syncTokenIfPossible()
+            }
         }
     }
 
     @objc private func handleDidBecomeActive() {
         requestAuthorizationAndRegisterIfNeeded()
+        UIApplication.shared.applicationIconBadgeNumber = 0
         Task { await self.syncTokenIfPossible() }
+        Task { try? await self.api.resetPushBadge() }
     }
 
     func clearMessageNotifications(for conversationID: String?) {
@@ -108,6 +117,10 @@ final class PushNotificationManager: NSObject {
             DispatchQueue.main.async {
                 UIApplication.shared.applicationIconBadgeNumber = 0
             }
+
+            Task {
+                try? await self.api.resetPushBadge()
+            }
         }
     }
 }
@@ -125,6 +138,14 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
 final class PushAppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        PushNotificationManager.shared.configure()
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         PushNotificationManager.shared.handleRegisteredDeviceToken(deviceToken)
@@ -134,8 +155,6 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        #if DEBUG
         print("[push] APNs registration failed: \(error.localizedDescription)")
-        #endif
     }
 }
