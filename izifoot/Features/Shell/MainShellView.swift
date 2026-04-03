@@ -1,12 +1,11 @@
 import Combine
 import SwiftUI
+import UIKit
 
 struct MainShellView: View {
     @EnvironmentObject private var authStore: AuthStore
     @State private var selectedTab: AppTab = .planning
     @State private var unreadMessagesCount = 0
-    private let api = IzifootAPI()
-    private let unreadTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -45,26 +44,14 @@ struct MainShellView: View {
             }
         }
         .task(id: authStore.me?.id) {
-            await refreshUnreadCount()
-        }
-        .onReceive(unreadTimer) { _ in
-            Task { await refreshUnreadCount() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .teamMessagesDidRefresh)) { _ in
-            Task { await refreshUnreadCount() }
-        }
-    }
-
-    private func refreshUnreadCount() async {
-        guard authStore.me != nil else {
             unreadMessagesCount = 0
-            return
         }
-
-        do {
-            unreadMessagesCount = try await api.unreadTeamMessagesCount()
-        } catch {
-            unreadMessagesCount = 0
+        .onReceive(NotificationCenter.default.publisher(for: .messagesUnreadCountDidChange)) { output in
+            let count = (output.userInfo?["count"] as? Int) ?? 0
+            unreadMessagesCount = max(0, count)
+            if count == 0 {
+                UIApplication.shared.applicationIconBadgeNumber = 0
+            }
         }
     }
 }

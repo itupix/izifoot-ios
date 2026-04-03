@@ -3,6 +3,46 @@ import SwiftUI
 
 extension Notification.Name {
     static let teamMessagesDidRefresh = Notification.Name("teamMessagesDidRefresh")
+    static let messagesUnreadCountDidChange = Notification.Name("messagesUnreadCountDidChange")
+}
+
+@MainActor
+final class ConversationUnreadStore: ObservableObject {
+    @Published private(set) var revision = 0
+
+    private let defaults = UserDefaults.standard
+    private let keyPrefix = "izifoot.messages.lastSeen."
+    private var currentUserID: String?
+
+    func setCurrentUserID(_ userID: String?) {
+        guard currentUserID != userID else { return }
+        currentUserID = userID
+        revision += 1
+    }
+
+    func hasUnread(_ conversation: MessageConversation) -> Bool {
+        guard let lastMessageAt = conversation.lastMessageAt,
+              let lastDate = DateFormatters.parseISODate(lastMessageAt),
+              let userID = currentUserID,
+              !userID.isEmpty else {
+            return false
+        }
+
+        let seenTimestamp = defaults.double(forKey: storageKey(userID: userID, conversationID: conversation.id))
+        guard seenTimestamp > 0 else { return true }
+        return lastDate.timeIntervalSince1970 > seenTimestamp
+    }
+
+    func markConversationRead(conversationID: String, lastMessageAt: String?) {
+        guard let userID = currentUserID, !userID.isEmpty else { return }
+        let timestamp = DateFormatters.parseISODate(lastMessageAt ?? "")?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+        defaults.set(timestamp, forKey: storageKey(userID: userID, conversationID: conversationID))
+        revision += 1
+    }
+
+    private func storageKey(userID: String, conversationID: String) -> String {
+        "\(keyPrefix)\(userID).\(conversationID)"
+    }
 }
 
 @MainActor
@@ -85,6 +125,7 @@ final class ConversationThreadViewModel: ObservableObject {
 struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = MessagesListViewModel()
+    @StateObject private var unreadStore = ConversationUnreadStore()
 
     var body: some View {
         List {
@@ -109,9 +150,14 @@ struct MessagesView: View {
             } else {
                 ForEach(viewModel.conversations) { conversation in
                     NavigationLink {
-                        ConversationThreadView(conversation: conversation)
+                        ConversationThreadView(conversation: conversation) { latestMessageAt in
+                            unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+                        }
                     } label: {
-                        ConversationRow(conversation: conversation)
+                        ConversationRow(
+                            conversation: conversation,
+                            showsUnreadDot: unreadStore.hasUnread(conversation)
+                        )
                     }
                 }
             }
@@ -120,10 +166,20 @@ struct MessagesView: View {
         .navigationTitle("Messages")
         .appChrome()
         .task {
+            unreadStore.setCurrentUserID(authStore.me?.id)
             await viewModel.load()
+            publishUnreadCount()
+        }
+        .onChange(of: authStore.me?.id) { _, newValue in
+            unreadStore.setCurrentUserID(newValue)
+            publishUnreadCount()
         }
         .refreshable {
             await viewModel.load()
+            publishUnreadCount()
+        }
+        .onAppear {
+            publishUnreadCount()
         }
         .alert("Erreur", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
@@ -133,11 +189,35 @@ struct MessagesView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .onChange(of: unreadStore.revision) { _, _ in
+            publishUnreadCount()
+        }
+        .onChange(of: conversationsSignature) { _, _ in
+            publishUnreadCount()
+        }
+    }
+
+    private var conversationsSignature: String {
+        viewModel.conversations
+            .map { "\($0.id)|\($0.lastMessageAt ?? "")" }
+            .joined(separator: "||")
+    }
+
+    private func publishUnreadCount() {
+        let unreadCount = viewModel.conversations.reduce(into: 0) { result, conversation in
+            if unreadStore.hasUnread(conversation) { result += 1 }
+        }
+        NotificationCenter.default.post(
+            name: .messagesUnreadCountDidChange,
+            object: nil,
+            userInfo: ["count": unreadCount]
+        )
     }
 }
 
 private struct ConversationRow: View {
     let conversation: MessageConversation
+    let showsUnreadDot: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -155,6 +235,11 @@ private struct ConversationRow: View {
                     Text(conversation.title)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
+                    if showsUnreadDot {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 8, height: 8)
+                    }
                     Spacer()
                     if let timestamp = formattedTime(conversation.lastMessageAt) {
                         Text(timestamp)
@@ -200,9 +285,11 @@ private struct ConversationThreadView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel: ConversationThreadViewModel
     @FocusState private var isComposerFocused: Bool
+    let onOpened: (String?) -> Void
 
-    init(conversation: MessageConversation) {
+    init(conversation: MessageConversation, onOpened: @escaping (String?) -> Void = { _ in }) {
         _viewModel = StateObject(wrappedValue: ConversationThreadViewModel(conversation: conversation))
+        self.onOpened = onOpened
     }
 
     var body: some View {
@@ -268,7 +355,10 @@ private struct ConversationThreadView: View {
         .navigationTitle(viewModel.conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            onOpened(viewModel.conversation.lastMessageAt)
+            PushNotificationManager.shared.clearMessageNotifications(for: viewModel.conversation.id)
             await viewModel.load()
+            onOpened(viewModel.messages.last?.createdAt ?? viewModel.conversation.lastMessageAt)
         }
         .refreshable {
             await viewModel.load()

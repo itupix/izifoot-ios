@@ -2,20 +2,30 @@ import Foundation
 import UIKit
 import UserNotifications
 
-final class PushNotificationManager: NSObject, ObservableObject {
+final class PushNotificationManager: NSObject {
     static let shared = PushNotificationManager()
 
     private let api = IzifootAPI()
     private var authenticatedUserID: String?
     private var deviceTokenHex: String?
     private var lastSyncedKey: String?
+    private var isConfigured = false
 
     private override init() {
         super.init()
     }
 
     func configure() {
+        guard !isConfigured else { return }
+        isConfigured = true
         UNUserNotificationCenter.current().delegate = self
+        requestAuthorizationAndRegisterIfNeeded()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     @MainActor
@@ -68,7 +78,36 @@ final class PushNotificationManager: NSObject, ObservableObject {
             try await api.registerPushToken(token, enabled: true)
             lastSyncedKey = syncKey
         } catch {
-            // Silent retry on next app foreground / token refresh.
+            #if DEBUG
+            print("[push] token sync failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    @objc private func handleDidBecomeActive() {
+        requestAuthorizationAndRegisterIfNeeded()
+        Task { await self.syncTokenIfPossible() }
+    }
+
+    func clearMessageNotifications(for conversationID: String?) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notifications in
+            let identifiers = notifications.compactMap { item -> String? in
+                let userInfo = item.request.content.userInfo
+                guard (userInfo["type"] as? String) == "MESSAGE" else { return nil }
+                if let conversationID, !conversationID.isEmpty {
+                    return (userInfo["conversationId"] as? String) == conversationID ? item.request.identifier : nil
+                }
+                return item.request.identifier
+            }
+
+            if !identifiers.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: identifiers)
+            }
+
+            DispatchQueue.main.async {
+                UIApplication.shared.applicationIconBadgeNumber = 0
+            }
         }
     }
 }

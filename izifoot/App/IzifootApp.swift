@@ -5,7 +5,7 @@ struct IzifootApp: App {
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @StateObject private var authStore = AuthStore()
     @StateObject private var teamScopeStore = TeamScopeStore()
-    @StateObject private var pushManager = PushNotificationManager.shared
+    private let pushManager = PushNotificationManager.shared
 
     var body: some Scene {
         WindowGroup {

@@ -10,7 +10,9 @@
 		423BC0BB2F71DE7C000C1FEC /* izifoot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = izifoot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4258FB8F2F748483006C5E2C /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		42731AD12F7FA47A009AA54F /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4294DB6A2F77324B0077A058 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		4294DBCC2F7EB1CA0077A058 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -58,7 +60,17 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		42731AD32F7FA47A009AA54F /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
 		4294DB6C2F77324B0077A058 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4294DBCE2F7EB1CA0077A058 /* Products */ = {
 			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
@@ -125,8 +137,16 @@
 					ProjectRef = 423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */;
 				},
 				{
+					ProductGroup = 42731AD32F7FA47A009AA54F /* Products */;
+					ProjectRef = 42731AD12F7FA47A009AA54F /* izifoot.xcodeproj */;
+				},
+				{
 					ProductGroup = 4294DB6C2F77324B0077A058 /* Products */;
 					ProjectRef = 4294DB6A2F77324B0077A058 /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 4294DBCE2F7EB1CA0077A058 /* Products */;
+					ProjectRef = 4294DBCC2F7EB1CA0077A058 /* izifoot.xcodeproj */;
 				},
 			);
 			projectRoot = "";
@@ -281,11 +301,13 @@
 		423BC0C72F71DE7E000C1FEC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = izifoot/izifoot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = P55PKGSEH2;
+				DEVELOPMENT_TEAM = XL553UCC9Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -298,7 +320,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.itupix.izifoot;
+				PRODUCT_BUNDLE_IDENTIFIER = com.izifoot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -313,11 +335,13 @@
 		423BC0C82F71DE7E000C1FEC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = izifoot/izifoot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = P55PKGSEH2;
+				DEVELOPMENT_TEAM = XL553UCC9Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -330,7 +354,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.itupix.izifoot;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jeromeboukorras.izifoot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
