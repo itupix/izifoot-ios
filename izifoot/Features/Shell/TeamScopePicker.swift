@@ -21,7 +21,15 @@ struct TeamScopePicker: View {
                     }
                 }
             } label: {
-                Label("Equipe", systemImage: "person.3")
+                HStack(spacing: 6) {
+                    Text(selectedTeamLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: 180)
             }
         }
     }
@@ -29,5 +37,16 @@ struct TeamScopePicker: View {
     private var canSelectTeam: Bool {
         guard let role = authStore.me?.role else { return false }
         return (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty
+    }
+
+    private var selectedTeamLabel: String {
+        if let selectedTeamID = teamScopeStore.selectedTeamID,
+           let selectedTeam = teamScopeStore.teams.first(where: { $0.id == selectedTeamID }) {
+            return selectedTeam.name
+        }
+        if authStore.me?.role == .direction {
+            return "Toutes"
+        }
+        return teamScopeStore.teams.first?.name ?? "Equipe"
     }
 }

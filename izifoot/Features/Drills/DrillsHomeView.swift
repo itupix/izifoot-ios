@@ -20,13 +20,30 @@ final class DrillsHomeViewModel: ObservableObject {
         self.api = api ?? IzifootAPI()
     }
 
+    private struct DrillsHomeCachePayload: Codable {
+        let drills: [Drill]
+        let categories: [String]
+        let tags: [String]
+        let nextOffset: Int
+        let canLoadMore: Bool
+    }
+
     var canLoadMoreDrills: Bool {
         canLoadMore && !isLoading && !isLoadingMore
     }
 
-    func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    func load(cacheKey: String, forceRefresh: Bool = false) async {
+        var hasCachedData = false
+        if !forceRefresh,
+           let cached = await PersistentDataCache.shared.read(DrillsHomeCachePayload.self, forKey: cacheKey) {
+            drills = cached.drills
+            categories = cached.categories
+            tags = cached.tags
+            nextOffset = cached.nextOffset
+            canLoadMore = cached.canLoadMore
+            hasCachedData = true
+            errorMessage = nil
+        }
 
         do {
             let response = try await api.drills(limit: pageSize, offset: 0)
@@ -35,13 +52,14 @@ final class DrillsHomeViewModel: ObservableObject {
             tags = response.tags
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
         }
     }
 
-    func loadMore() async {
+    func loadMore(cacheKey: String) async {
         guard canLoadMoreDrills else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
@@ -53,6 +71,7 @@ final class DrillsHomeViewModel: ObservableObject {
             tags = Array(Set(tags).union(response.tags)).sorted()
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -65,7 +84,8 @@ final class DrillsHomeViewModel: ObservableObject {
         duration: Int,
         players: String,
         description: String,
-        tags: [String]
+        tags: [String],
+        cacheKey: String
     ) async {
         do {
             let created = try await api.createDrill(
@@ -77,16 +97,32 @@ final class DrillsHomeViewModel: ObservableObject {
                 tags: tags
             )
             drills.insert(created, at: 0)
+            await persistCache(forKey: cacheKey)
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
+
+    private func persistCache(forKey cacheKey: String) async {
+        await PersistentDataCache.shared.write(
+            DrillsHomeCachePayload(
+                drills: drills,
+                categories: categories,
+                tags: tags,
+                nextOffset: nextOffset,
+                canLoadMore: canLoadMore
+            ),
+            forKey: cacheKey
+        )
+    }
 }
 
 struct DrillsHomeView: View {
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = DrillsHomeViewModel()
     @State private var isSheetPresented = false
     @State private var searchText = ""
+    private var dataCacheKey: String { "drills-home-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
         NavigationStack {
@@ -113,15 +149,11 @@ struct DrillsHomeView: View {
 
                     if viewModel.canLoadMoreDrills {
                         Button {
-                            Task { await viewModel.loadMore() }
+                            Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
                         } label: {
                             HStack {
                                 Spacer()
-                                if viewModel.isLoadingMore {
-                                    ProgressView()
-                                } else {
-                                    Text("Charger plus")
-                                }
+                                Text(viewModel.isLoadingMore ? "Chargement..." : "Charger plus")
                                 Spacer()
                             }
                         }
@@ -129,19 +161,14 @@ struct DrillsHomeView: View {
                     }
                 }
             }
-            .overlay {
-                if viewModel.isLoading {
-                    ProgressView("Chargement")
-                }
-            }
             .navigationTitle("Exercices")
-            .appChrome()
+            .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Rechercher un exercice")
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             }
             .task {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey)
             }
             .sheet(isPresented: $isSheetPresented) {
                 CreateDrillSheet(defaultCategories: viewModel.categories, defaultTags: viewModel.tags) { payload in
@@ -151,7 +178,8 @@ struct DrillsHomeView: View {
                         duration: payload.duration,
                         players: payload.players,
                         description: payload.description,
-                        tags: payload.tags
+                        tags: payload.tags,
+                        cacheKey: dataCacheKey
                     )
                     isSheetPresented = false
                 }

@@ -57,15 +57,25 @@ final class MessagesListViewModel: ObservableObject {
         self.api = api
     }
 
-    func load(teamID: String? = nil) async {
-        isLoading = true
-        defer { isLoading = false }
+    private struct MessagesListCachePayload: Codable {
+        let conversations: [MessageConversation]
+    }
+
+    func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
+        var hasCachedData = false
+        if !forceRefresh,
+           let cached = await PersistentDataCache.shared.read(MessagesListCachePayload.self, forKey: cacheKey) {
+            conversations = cached.conversations
+            hasCachedData = true
+            errorMessage = nil
+        }
 
         do {
             conversations = try await api.messageConversations(teamID: teamID)
+            await PersistentDataCache.shared.write(MessagesListCachePayload(conversations: conversations), forKey: cacheKey)
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
         }
     }
 }
@@ -126,74 +136,70 @@ struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = MessagesListViewModel()
     @StateObject private var unreadStore = ConversationUnreadStore()
+    private var dataCacheKey: String { "messages-home-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
-        List {
-            if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Chargement")
-                    Spacer()
-                }
-                .listRowSeparator(.hidden)
-            } else if viewModel.conversations.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                    Text("Aucune conversation")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 24)
-                .listRowSeparator(.hidden)
-            } else {
-                ForEach(viewModel.conversations) { conversation in
-                    NavigationLink {
-                        ConversationThreadView(conversation: conversation) { latestMessageAt in
-                            unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+        NavigationStack {
+            List {
+                if viewModel.conversations.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                        Text("Aucune conversation")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 24)
+                    .listRowSeparator(.hidden)
+                } else {
+                    ForEach(viewModel.conversations) { conversation in
+                        NavigationLink {
+                            ConversationThreadView(conversation: conversation) { latestMessageAt in
+                                unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+                            }
+                        } label: {
+                            ConversationRow(
+                                conversation: conversation,
+                                showsUnreadDot: unreadStore.hasUnread(conversation)
+                            )
                         }
-                    } label: {
-                        ConversationRow(
-                            conversation: conversation,
-                            showsUnreadDot: unreadStore.hasUnread(conversation)
-                        )
                     }
                 }
             }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Messages")
-        .appChrome()
-        .task {
-            unreadStore.setCurrentUserID(authStore.me?.id)
-            await viewModel.load()
-            publishUnreadCount()
-        }
-        .onChange(of: authStore.me?.id) { _, newValue in
-            unreadStore.setCurrentUserID(newValue)
-            publishUnreadCount()
-        }
-        .refreshable {
-            await viewModel.load()
-            publishUnreadCount()
-        }
-        .onAppear {
-            publishUnreadCount()
-        }
-        .alert("Erreur", isPresented: Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { _ in viewModel.errorMessage = nil }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(viewModel.errorMessage ?? "")
-        }
-        .onChange(of: unreadStore.revision) { _, _ in
-            publishUnreadCount()
-        }
-        .onChange(of: conversationsSignature) { _, _ in
-            publishUnreadCount()
+            .listStyle(.plain)
+            .navigationTitle("Messages")
+            .navigationBarTitleDisplayMode(.large)
+            .task {
+                unreadStore.setCurrentUserID(authStore.me?.id)
+                await viewModel.load(cacheKey: dataCacheKey)
+                publishUnreadCount()
+            }
+            .onChange(of: authStore.me?.id) { _, newValue in
+                unreadStore.setCurrentUserID(newValue)
+                publishUnreadCount()
+            }
+            .refreshable {
+                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                publishUnreadCount()
+            }
+            .onAppear {
+                publishUnreadCount()
+            }
+            .alert("Erreur", isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { _ in viewModel.errorMessage = nil }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.errorMessage ?? "")
+            }
+            .onChange(of: unreadStore.revision) { _, _ in
+                publishUnreadCount()
+            }
+            .onChange(of: conversationsSignature) { _, _ in
+                publishUnreadCount()
+            }
         }
     }
 
@@ -339,13 +345,8 @@ private struct ConversationThreadView: View {
                         isComposerFocused = false
                     }
                 } label: {
-                    if viewModel.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                    }
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 28))
                 }
                 .disabled(!canSend || viewModel.isSending || viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

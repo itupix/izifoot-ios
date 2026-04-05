@@ -14,22 +14,37 @@ final class PlanningHomeViewModel: ObservableObject {
         self.api = api ?? IzifootAPI()
     }
 
-    func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    private struct PlanningHomeCachePayload: Codable {
+        let trainings: [Training]
+        let matchdays: [Matchday]
+    }
+
+    func load(cacheKey: String, forceRefresh: Bool = false) async {
+        var hasCachedData = false
+        if !forceRefresh,
+           let cached = await PersistentDataCache.shared.read(PlanningHomeCachePayload.self, forKey: cacheKey) {
+            trainings = cached.trainings
+            matchdays = cached.matchdays
+            hasCachedData = true
+            errorMessage = nil
+        }
 
         do {
             async let trainingsTask = api.allTrainings()
             async let matchdaysTask = api.allMatchdays()
             trainings = try await trainingsTask.sorted { $0.date > $1.date }
             matchdays = try await matchdaysTask.sorted { $0.date > $1.date }
+            await PersistentDataCache.shared.write(
+                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                forKey: cacheKey
+            )
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
         }
     }
 
-    func createTraining(date: Date, teamID: String?, teamName: String?) async {
+    func createTraining(date: Date, teamID: String?, teamName: String?, cacheKey: String) async {
         do {
             let newTraining = try await api.createTraining(
                 dateISO8601: DateFormatters.isoString(from: date),
@@ -37,6 +52,10 @@ final class PlanningHomeViewModel: ObservableObject {
                 teamName: teamName
             )
             trainings.insert(newTraining, at: 0)
+            await PersistentDataCache.shared.write(
+                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                forKey: cacheKey
+            )
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
@@ -47,6 +66,7 @@ final class PlanningHomeViewModel: ObservableObject {
         location: String,
         teamID: String?,
         teamName: String?,
+        cacheKey: String,
         startTime: String? = nil,
         meetingTime: String? = nil
     ) async {
@@ -60,6 +80,10 @@ final class PlanningHomeViewModel: ObservableObject {
                 meetingTime: meetingTime
             )
             matchdays.insert(newMatchday, at: 0)
+            await PersistentDataCache.shared.write(
+                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                forKey: cacheKey
+            )
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
@@ -78,6 +102,7 @@ struct PlanningHomeView: View {
     @State private var isPlateauSheetPresented = false
     @State private var plateauLocation = ""
     @State private var updatingTrainingIntentIDs: Set<String> = []
+    private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
         NavigationStack {
@@ -85,7 +110,20 @@ struct PlanningHomeView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     dateHeader
 
-                    PlanningSectionCard(title: "Entraînements") {
+                    PlanningSectionCard(
+                        title: "Entraînements",
+                        actionTitle: teamScopedWritable ? "Ajouter" : nil,
+                        onAction: teamScopedWritable ? {
+                            Task {
+                                await viewModel.createTraining(
+                                    date: selectedDate,
+                                    teamID: teamScopeStore.selectedTeamID,
+                                    teamName: selectedTeamName,
+                                    cacheKey: dataCacheKey
+                                )
+                            }
+                        } : nil
+                    ) {
                         if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
                             Text("Sélectionnez une équipe active pour modifier les données.")
                                 .font(.subheadline)
@@ -145,21 +183,16 @@ struct PlanningHomeView: View {
                             }
                         }
 
-                        if teamScopedWritable {
-                            Button("Ajouter un entraînement") {
-                                Task {
-                                    await viewModel.createTraining(
-                                        date: selectedDate,
-                                        teamID: teamScopeStore.selectedTeamID,
-                                        teamName: selectedTeamName
-                                    )
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
                     }
 
-                    PlanningSectionCard(title: "Plateaux") {
+                    PlanningSectionCard(
+                        title: "Plateaux",
+                        actionTitle: teamScopedWritable ? "Ajouter" : nil,
+                        onAction: teamScopedWritable ? {
+                            plateauLocation = ""
+                            isPlateauSheetPresented = true
+                        } : nil
+                    ) {
                         if dayMatchdays.isEmpty {
                             Text("Aucun plateau ce jour.")
                                 .font(.subheadline)
@@ -189,13 +222,6 @@ struct PlanningHomeView: View {
                             }
                         }
 
-                        if teamScopedWritable {
-                            Button("Ajouter un plateau") {
-                                plateauLocation = ""
-                                isPlateauSheetPresented = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -203,23 +229,12 @@ struct PlanningHomeView: View {
             }
             .navigationTitle("Planning")
             .appChrome()
-            .toolbar {
-                if viewModel.isLoading {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-            }
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             }
             .task {
                 selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: storedPlanningDate)
-                await viewModel.load()
-            }
-            .onAppear {
-                Task { await viewModel.load() }
+                await viewModel.load(cacheKey: dataCacheKey)
             }
             .onChange(of: selectedDate) { _, newValue in
                 storedPlanningDate = PlanningDateHelpers.storageKey(for: newValue)
@@ -242,7 +257,8 @@ struct PlanningHomeView: View {
                         date: selectedDate,
                         location: plateauLocation.trimmingCharacters(in: .whitespacesAndNewlines),
                         teamID: teamScopeStore.selectedTeamID,
-                        teamName: selectedTeamName
+                        teamName: selectedTeamName,
+                        cacheKey: dataCacheKey
                     )
                     plateauLocation = ""
                     isPlateauSheetPresented = false
@@ -266,23 +282,19 @@ struct PlanningHomeView: View {
                 selectedDate = PlanningDateHelpers.addDays(-1, to: selectedDate)
             } label: {
                 Image(systemName: "chevron.left")
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
 
             Button {
                 selectedDate = PlanningDateHelpers.today
             } label: {
-                VStack(spacing: 2) {
-                    Text(isTodaySelected ? "Aujourd'hui" : PlanningDateHelpers.title(for: selectedDate))
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                    if !isTodaySelected {
-                        Text("Revenir à aujourd'hui")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
+                Text(isTodaySelected ? "Aujourd'hui" : PlanningDateHelpers.title(for: selectedDate))
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
 
@@ -291,15 +303,21 @@ struct PlanningHomeView: View {
                     selectedDate = PlanningDateHelpers.addDays(1, to: selectedDate)
                 } label: {
                     Image(systemName: "chevron.right")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
 
                 Button {
                     isDatePickerPresented = true
                 } label: {
                     Image(systemName: "calendar")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
             }
         }
     }
@@ -410,7 +428,7 @@ struct PlanningHomeView: View {
         defer { updatingTrainingIntentIDs.remove(trainingID) }
         do {
             try await IzifootAPI().setTrainingIntent(trainingID: trainingID, present: present)
-            await viewModel.load()
+            await viewModel.load(cacheKey: dataCacheKey)
         } catch {
             if !error.isCancellationError {
                 viewModel.errorMessage = error.localizedDescription
@@ -499,12 +517,23 @@ private enum PlanningDateHelpers {
 
 private struct PlanningSectionCard<Content: View>: View {
     let title: String
+    let actionTitle: String?
+    let onAction: (() -> Void)?
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.headline)
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.headline)
+
+                Spacer(minLength: 0)
+
+                if let actionTitle, let onAction {
+                    Button(actionTitle, action: onAction)
+                        .buttonStyle(.bordered)
+                }
+            }
 
             content
         }

@@ -13,7 +13,6 @@ struct IzifootApp: App {
                 .environmentObject(authStore)
                 .environmentObject(teamScopeStore)
                 .task {
-                    pushManager.configure()
                     await authStore.restoreSessionIfPossible()
                     await teamScopeStore.bootstrap(authStore: authStore)
                     await MainActor.run {

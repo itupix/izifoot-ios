@@ -16,9 +16,24 @@ final class StatsHomeViewModel: ObservableObject {
         self.api = api
     }
 
-    func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    private struct StatsHomeCachePayload: Codable {
+        let playersCount: Int
+        let trainingsCount: Int
+        let matchdaysCount: Int
+        let drillsCount: Int
+    }
+
+    func load(cacheKey: String, forceRefresh: Bool = false) async {
+        var hasCachedData = false
+        if !forceRefresh,
+           let cached = await PersistentDataCache.shared.read(StatsHomeCachePayload.self, forKey: cacheKey) {
+            playersCount = cached.playersCount
+            trainingsCount = cached.trainingsCount
+            matchdaysCount = cached.matchdaysCount
+            drillsCount = cached.drillsCount
+            hasCachedData = true
+            errorMessage = nil
+        }
 
         do {
             async let players = api.allPlayers()
@@ -30,15 +45,26 @@ final class StatsHomeViewModel: ObservableObject {
             trainingsCount = try await trainings.count
             matchdaysCount = try await matchdays.count
             drillsCount = try await drills.items.count
+            await PersistentDataCache.shared.write(
+                StatsHomeCachePayload(
+                    playersCount: playersCount,
+                    trainingsCount: trainingsCount,
+                    matchdaysCount: matchdaysCount,
+                    drillsCount: drillsCount
+                ),
+                forKey: cacheKey
+            )
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
         }
     }
 }
 
 struct StatsHomeView: View {
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = StatsHomeViewModel()
+    private var dataCacheKey: String { "stats-home-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
         NavigationStack {
@@ -50,18 +76,13 @@ struct StatsHomeView: View {
                     LabeledContent("Exercices", value: "\(viewModel.drillsCount)")
                 }
             }
-            .overlay {
-                if viewModel.isLoading {
-                    ProgressView("Chargement")
-                }
-            }
             .navigationTitle("Stats")
-            .appChrome()
+            .navigationBarTitleDisplayMode(.large)
             .task {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey)
             }
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             }
             .alert("Erreur", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },

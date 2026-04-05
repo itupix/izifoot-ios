@@ -18,26 +18,88 @@ final class PlayersHomeViewModel: ObservableObject {
         self.api = api ?? IzifootAPI()
     }
 
+    private struct CachedParentContact: Codable {
+        let parentId: String?
+        let parentUserId: String?
+        let firstName: String?
+        let lastName: String?
+        let email: String?
+        let phone: String?
+        let status: String?
+    }
+
+    private struct CachedPlayer: Codable {
+        let id: String
+        let name: String
+        let firstName: String?
+        let lastName: String?
+        let primaryPosition: String?
+        let secondaryPosition: String?
+        let email: String?
+        let phone: String?
+        let isChild: Bool
+        let parentContacts: [CachedParentContact]
+        let teamId: String?
+    }
+
+    private struct PlayersHomeCachePayload: Codable {
+        let players: [CachedPlayer]
+        let nextOffset: Int
+        let canLoadMore: Bool
+    }
+
     var canLoadMorePlayers: Bool {
         canLoadMore && !isLoading && !isLoadingMore
     }
 
-    func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    func load(cacheKey: String, forceRefresh: Bool = false) async {
+        var hasCachedData = false
+        if !forceRefresh,
+           let cached = await PersistentDataCache.shared.read(PlayersHomeCachePayload.self, forKey: cacheKey) {
+            players = cached.players.map { cached in
+                Player(
+                    id: cached.id,
+                    name: cached.name,
+                    firstName: cached.firstName,
+                    lastName: cached.lastName,
+                    primaryPosition: cached.primaryPosition,
+                    secondaryPosition: cached.secondaryPosition,
+                    email: cached.email,
+                    phone: cached.phone,
+                    isChild: cached.isChild,
+                    parentContacts: cached.parentContacts.map { contact in
+                        Player.ParentContact(
+                            parentId: contact.parentId,
+                            parentUserId: contact.parentUserId,
+                            firstName: contact.firstName,
+                            lastName: contact.lastName,
+                            email: contact.email,
+                            phone: contact.phone,
+                            status: contact.status
+                        )
+                    },
+                    teamId: cached.teamId
+                )
+            }
+            nextOffset = cached.nextOffset
+            canLoadMore = cached.canLoadMore
+            hasCachedData = true
+            errorMessage = nil
+        }
 
         do {
             let response = try await api.players(limit: pageSize, offset: 0)
             players = response.items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
         }
     }
 
-    func loadMore() async {
+    func loadMore(cacheKey: String) async {
         guard canLoadMorePlayers else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
@@ -48,6 +110,7 @@ final class PlayersHomeViewModel: ObservableObject {
             players.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -60,7 +123,8 @@ final class PlayersHomeViewModel: ObservableObject {
         email: String,
         phone: String,
         primaryPosition: String,
-        secondaryPosition: String?
+        secondaryPosition: String?,
+        cacheKey: String
     ) async {
         do {
             let created = try await api.createPlayer(
@@ -72,9 +136,46 @@ final class PlayersHomeViewModel: ObservableObject {
                 secondaryPosition: secondaryPosition
             )
             players.insert(created, at: 0)
+            players.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            await persistCache(forKey: cacheKey)
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func persistCache(forKey cacheKey: String) async {
+        await PersistentDataCache.shared.write(
+            PlayersHomeCachePayload(
+                players: players.map { player in
+                    CachedPlayer(
+                        id: player.id,
+                        name: player.name,
+                        firstName: player.firstName,
+                        lastName: player.lastName,
+                        primaryPosition: player.primaryPosition,
+                        secondaryPosition: player.secondaryPosition,
+                        email: player.email,
+                        phone: player.phone,
+                        isChild: player.isChild,
+                        parentContacts: player.parentContacts.map { contact in
+                            CachedParentContact(
+                                parentId: contact.parentId,
+                                parentUserId: contact.parentUserId,
+                                firstName: contact.firstName,
+                                lastName: contact.lastName,
+                                email: contact.email,
+                                phone: contact.phone,
+                                status: contact.status
+                            )
+                        },
+                        teamId: player.teamId
+                    )
+                },
+                nextOffset: nextOffset,
+                canLoadMore: canLoadMore
+            ),
+            forKey: cacheKey
+        )
     }
 }
 
@@ -335,11 +436,13 @@ private enum TeamTab: String, CaseIterable, Identifiable {
 }
 
 struct PlayersHomeView: View {
+    @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = PlayersHomeViewModel()
     @StateObject private var statsViewModel = TeamStatsViewModel()
     @State private var query = ""
     @State private var isCreateSheetPresented = false
     @State private var selectedTab: TeamTab = .players
+    private var dataCacheKey: String { "players-home-\(authStore.me?.id ?? "anonymous")" }
 
     private var filteredPlayers: [Player] {
         guard !query.isEmpty else { return viewModel.players }
@@ -371,11 +474,8 @@ struct PlayersHomeView: View {
                     statsList
                 }
             }
-            .overlay {
-                if viewModel.isLoading {
-                    ProgressView("Chargement")
-                }
-            }
+            .navigationTitle("Mon équipe")
+            .navigationBarTitleDisplayMode(.large)
             .overlay(alignment: .bottomTrailing) {
                 if selectedTab == .players {
                     Button {
@@ -393,10 +493,8 @@ struct PlayersHomeView: View {
                     .accessibilityLabel("Ajouter un joueur")
                 }
             }
-            .navigationTitle("Mon équipe")
-            .appChrome()
             .task {
-                await viewModel.load()
+                await viewModel.load(cacheKey: dataCacheKey)
             }
             .sheet(isPresented: $isCreateSheetPresented) {
                 CreatePlayerSheet { payload in
@@ -406,7 +504,8 @@ struct PlayersHomeView: View {
                         email: payload.email,
                         phone: payload.phone,
                         primaryPosition: payload.primaryPosition,
-                        secondaryPosition: payload.secondaryPosition
+                        secondaryPosition: payload.secondaryPosition,
+                        cacheKey: dataCacheKey
                     )
                     isCreateSheetPresented = false
                 }
@@ -467,7 +566,7 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load()
+            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             if selectedTab == .stats {
                 await statsViewModel.load(players: viewModel.players)
             }
@@ -491,7 +590,7 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load()
+            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             if selectedTab == .stats {
                 await statsViewModel.load(players: viewModel.players)
             }
@@ -515,7 +614,7 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load()
+            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             if selectedTab == .stats {
                 await statsViewModel.load(players: viewModel.players)
             }
@@ -550,15 +649,11 @@ struct PlayersHomeView: View {
 
             if query.isEmpty && viewModel.canLoadMorePlayers {
                 Button {
-                    Task { await viewModel.loadMore() }
+                    Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
                 } label: {
                     HStack {
                         Spacer()
-                        if viewModel.isLoadingMore {
-                            ProgressView()
-                        } else {
-                            Text("Charger plus")
-                        }
+                        Text(viewModel.isLoadingMore ? "Chargement..." : "Charger plus")
                         Spacer()
                     }
                 }
@@ -569,7 +664,7 @@ struct PlayersHomeView: View {
 
     private var tacticSection: some View {
         Section("Tactique") {
-            TeamTacticCard(players: viewModel.players)
+            TeamTacticCard()
                 .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 .listRowBackground(Color.clear)
         }
@@ -584,18 +679,120 @@ struct PlayersHomeView: View {
     }
 }
 
+private struct TacticPoint: Codable, Identifiable {
+    let id: String
+    let x: CGFloat
+    let y: CGFloat
+}
+
+private struct TacticSlot: Codable, Identifiable, Equatable {
+    let id: String
+    var label: String
+    var pointID: String
+}
+
+private struct SavedTactic: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let slots: [TacticSlot]
+}
+
 private struct TeamTacticCard: View {
-    let players: [Player]
+    private enum SaveMode: String, CaseIterable, Identifiable {
+        case overwrite = "Écraser l'actuelle"
+        case createNew = "Créer une nouvelle"
+
+        var id: String { rawValue }
+    }
+
+    @AppStorage("izifoot.team.tactics.json") private var tacticsJSON = ""
+    @AppStorage("izifoot.team.tactics.selected") private var selectedTacticID = ""
+
+    @State private var tactics: [SavedTactic] = []
+    @State private var workingSlots: [TacticSlot] = []
+    @State private var dragOffsets: [String: CGSize] = [:]
+    @State private var activeDragSlotID: String?
+    @State private var isSaveSheetPresented = false
+    @State private var newTacticName = ""
+    @State private var saveMode: SaveMode = .overwrite
+
+    private let points: [TacticPoint] = [
+        .init(id: "p1", x: 0.50, y: 0.90),
+        .init(id: "p2", x: 0.20, y: 0.82),
+        .init(id: "p3", x: 0.35, y: 0.82),
+        .init(id: "p4", x: 0.50, y: 0.82),
+        .init(id: "p5", x: 0.65, y: 0.82),
+        .init(id: "p6", x: 0.80, y: 0.82),
+        .init(id: "p7", x: 0.14, y: 0.72),
+        .init(id: "p8", x: 0.26, y: 0.72),
+        .init(id: "p9", x: 0.38, y: 0.72),
+        .init(id: "p10", x: 0.50, y: 0.72),
+        .init(id: "p11", x: 0.62, y: 0.72),
+        .init(id: "p12", x: 0.74, y: 0.72),
+        .init(id: "p13", x: 0.86, y: 0.72),
+        .init(id: "p14", x: 0.10, y: 0.60),
+        .init(id: "p15", x: 0.20, y: 0.60),
+        .init(id: "p16", x: 0.30, y: 0.60),
+        .init(id: "p17", x: 0.40, y: 0.60),
+        .init(id: "p18", x: 0.50, y: 0.60),
+        .init(id: "p19", x: 0.60, y: 0.60),
+        .init(id: "p20", x: 0.70, y: 0.60),
+        .init(id: "p21", x: 0.80, y: 0.60),
+        .init(id: "p22", x: 0.90, y: 0.60),
+        .init(id: "p23", x: 0.10, y: 0.48),
+        .init(id: "p24", x: 0.20, y: 0.48),
+        .init(id: "p25", x: 0.30, y: 0.48),
+        .init(id: "p26", x: 0.40, y: 0.48),
+        .init(id: "p27", x: 0.50, y: 0.48),
+        .init(id: "p28", x: 0.60, y: 0.48),
+        .init(id: "p29", x: 0.70, y: 0.48),
+        .init(id: "p30", x: 0.80, y: 0.48),
+        .init(id: "p31", x: 0.90, y: 0.48),
+        .init(id: "p32", x: 0.14, y: 0.36),
+        .init(id: "p33", x: 0.26, y: 0.36),
+        .init(id: "p34", x: 0.38, y: 0.36),
+        .init(id: "p35", x: 0.50, y: 0.36),
+        .init(id: "p36", x: 0.62, y: 0.36),
+        .init(id: "p37", x: 0.74, y: 0.36),
+        .init(id: "p38", x: 0.86, y: 0.36),
+        .init(id: "p39", x: 0.20, y: 0.24),
+        .init(id: "p40", x: 0.35, y: 0.24),
+        .init(id: "p41", x: 0.50, y: 0.24),
+        .init(id: "p42", x: 0.65, y: 0.24),
+        .init(id: "p43", x: 0.80, y: 0.24),
+        .init(id: "p44", x: 0.30, y: 0.14),
+        .init(id: "p45", x: 0.50, y: 0.14),
+        .init(id: "p46", x: 0.70, y: 0.14),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Tactique", systemImage: "sportscourt")
-                    .font(.headline)
+                Menu {
+                    ForEach(tactics) { tactic in
+                        Button {
+                            apply(tactic: tactic)
+                        } label: {
+                            HStack {
+                                Text(tactic.name)
+                                if tactic.id == selectedTacticID {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text((selectedTactic?.name ?? "Tactique") + (hasUnsavedChanges ? " *" : ""))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
-                Text("Losange")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
             }
 
             GeometryReader { proxy in
@@ -619,141 +816,333 @@ private struct TeamTacticCard: View {
                         .frame(width: min(proxy.size.width, proxy.size.height) * 0.22)
                         .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
 
-                    ForEach(Array(tacticalNodes.enumerated()), id: \.offset) { index, node in
-                        TeamTacticPlayerNode(
-                            title: abbreviatedName(for: node.player),
-                            color: node.color
-                        )
-                        .position(
-                            x: proxy.size.width * node.x,
-                            y: proxy.size.height * node.y
-                        )
+                    if activeDragSlotID != nil {
+                        ForEach(points) { point in
+                            Circle()
+                                .fill(.white.opacity(0.28))
+                                .frame(width: 10, height: 10)
+                                .position(x: proxy.size.width * point.x, y: proxy.size.height * point.y)
+                        }
+                    }
+
+                    ForEach(Array(workingSlots.enumerated()), id: \.element.id) { _, slot in
+                        if let point = point(by: slot.pointID) {
+                            TeamTacticPositionNode(label: positionLabel(for: point), color: uniformNodeColor)
+                                .position(
+                                    x: proxy.size.width * point.x + (dragOffsets[slot.id]?.width ?? 0),
+                                    y: proxy.size.height * point.y + (dragOffsets[slot.id]?.height ?? 0)
+                                )
+                                .gesture(
+                                    DragGesture()
+                                        .onChanged { value in
+                                            activeDragSlotID = slot.id
+                                            dragOffsets[slot.id] = value.translation
+                                        }
+                                        .onEnded { value in
+                                            handleDrop(
+                                                slotID: slot.id,
+                                                startPointID: slot.pointID,
+                                                translation: value.translation,
+                                                fieldSize: proxy.size
+                                            )
+                                        }
+                                )
+                        }
                     }
                 }
             }
             .frame(height: 420)
 
-            if !benchPlayers.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Remplaçants")
-                        .font(.headline)
-
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 10)], spacing: 10) {
-                        ForEach(Array(benchPlayers.enumerated()), id: \.offset) { index, player in
-                            TeamBenchChip(
-                                title: abbreviatedName(for: player),
-                                color: nodeColor(for: index + tacticalNodes.count)
-                            )
-                        }
+            if hasUnsavedChanges {
+                HStack(spacing: 10) {
+                    Button("Sauvegarder") {
+                        saveMode = selectedTactic == nil ? .createNew : .overwrite
+                        newTacticName = suggestedSaveName
+                        isSaveSheetPresented = true
                     }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Réinitialiser") {
+                        resetCurrentChanges()
+                    }
+                    .buttonStyle(.bordered)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(16)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var tacticalNodes: [(player: Player?, x: CGFloat, y: CGFloat, color: Color)] {
-        let selected = Array(players.prefix(5))
-        let layout: [(CGFloat, CGFloat)] = [
-            (0.5, 0.86),
-            (0.5, 0.64),
-            (0.23, 0.47),
-            (0.77, 0.47),
-            (0.5, 0.20)
-        ]
-        return layout.enumerated().map { index, point in
-            (selected.indices.contains(index) ? selected[index] : nil, point.0, point.1, nodeColor(for: index))
+        .onAppear {
+            loadTactics()
         }
-    }
+        .sheet(isPresented: $isSaveSheetPresented) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 14) {
+                    Picker("Mode", selection: $saveMode) {
+                        ForEach(SaveMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
 
-    private var benchPlayers: [Player] {
-        Array(players.dropFirst(5))
-    }
-
-    private func abbreviatedName(for player: Player?) -> String {
-        guard let player else { return "?" }
-        let source = player.firstName ?? player.name
-        let parts = source.split(separator: " ").map(String.init)
-        guard let first = parts.first, let second = parts.dropFirst().first?.first else {
-            return firstWord(in: source)
-        }
-        return "\(first) \(second)."
-    }
-
-    private func firstWord(in value: String) -> String {
-        value.split(separator: " ").first.map(String.init) ?? value
-    }
-
-    private func nodeColor(for index: Int) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.76, green: 0.24, blue: 0.20),
-            Color(red: 0.18, green: 0.49, blue: 0.74),
-            Color(red: 0.50, green: 0.23, blue: 0.88),
-            Color(red: 0.89, green: 0.57, blue: 0.16),
-            Color(red: 0.20, green: 0.67, blue: 0.46),
-            Color(red: 0.75, green: 0.39, blue: 0.18),
-            Color(red: 0.85, green: 0.27, blue: 0.58),
-            Color(red: 0.17, green: 0.63, blue: 0.69)
-        ]
-        return palette[index % palette.count]
-    }
-}
-
-private struct TeamTacticPlayerNode: View {
-    let title: String
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Circle()
-                .fill(color.gradient)
-                .frame(width: 58, height: 58)
-                .overlay {
-                    Text(initials)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                    if saveMode == .overwrite {
+                        Text("Tactique actuelle: \(selectedTactic?.name ?? "Aucune")")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("Nom de la tactique", text: $newTacticName)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
-                .overlay(
-                    Circle()
-                        .stroke(.white.opacity(0.82), lineWidth: 2)
-                )
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
-
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .navigationTitle("Sauvegarder")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Annuler") {
+                            isSaveSheetPresented = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Enregistrer") {
+                            saveFromSheet()
+                            isSaveSheetPresented = false
+                        }
+                        .disabled(saveMode == .createNew && newTacticName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.height(250)])
         }
     }
 
-    private var initials: String {
-        let letters = title
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-        return letters.isEmpty ? "?" : letters.uppercased()
+    private var selectedTactic: SavedTactic? {
+        tactics.first(where: { $0.id == selectedTacticID })
+    }
+
+    private var hasUnsavedChanges: Bool {
+        guard let tactic = selectedTactic else { return false }
+        return normalized(workingSlots) != normalized(tactic.slots)
+    }
+
+    private var suggestedSaveName: String {
+        guard let current = selectedTactic else { return "Nouvelle tactique" }
+        return "\(current.name) (copie)"
+    }
+
+    private func loadTactics() {
+        if let data = tacticsJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([SavedTactic].self, from: data),
+           !decoded.isEmpty {
+            tactics = decoded
+        } else {
+            tactics = defaultTactics
+            persistTactics()
+        }
+
+        if !tactics.contains(where: { $0.id == selectedTacticID }) {
+            selectedTacticID = tactics.first?.id ?? ""
+        }
+        workingSlots = selectedTactic?.slots ?? tactics.first?.slots ?? []
+    }
+
+    private func apply(tactic: SavedTactic) {
+        selectedTacticID = tactic.id
+        workingSlots = tactic.slots
+        dragOffsets = [:]
+    }
+
+    private func saveAsNewTactic() {
+        let name = newTacticName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let prepared = normalized(workingSlots).map { slot in
+            var copy = slot
+            if let point = point(by: slot.pointID) {
+                copy.label = positionLabel(for: point)
+            }
+            return copy
+        }
+        let new = SavedTactic(id: UUID().uuidString, name: name, slots: prepared)
+        tactics.append(new)
+        selectedTacticID = new.id
+        workingSlots = new.slots
+        persistTactics()
+    }
+
+    private func overwriteCurrentTactic() {
+        guard let selected = selectedTactic,
+              let index = tactics.firstIndex(where: { $0.id == selected.id }) else {
+            saveAsNewTactic()
+            return
+        }
+
+        let prepared = normalized(workingSlots).map { slot in
+            var copy = slot
+            if let point = point(by: slot.pointID) {
+                copy.label = positionLabel(for: point)
+            }
+            return copy
+        }
+
+        tactics[index] = SavedTactic(id: selected.id, name: selected.name, slots: prepared)
+        workingSlots = prepared
+        persistTactics()
+    }
+
+    private func saveFromSheet() {
+        switch saveMode {
+        case .overwrite:
+            overwriteCurrentTactic()
+        case .createNew:
+            saveAsNewTactic()
+        }
+    }
+
+    private func persistTactics() {
+        guard let data = try? JSONEncoder().encode(tactics),
+              let json = String(data: data, encoding: .utf8) else { return }
+        tacticsJSON = json
+    }
+
+    private func handleDrop(slotID: String, startPointID: String, translation: CGSize, fieldSize: CGSize) {
+        defer {
+            dragOffsets[slotID] = .zero
+            activeDragSlotID = nil
+        }
+        let start = point(by: startPointID) ?? points[0]
+        let destinationX = start.x + (translation.width / max(fieldSize.width, 1))
+        let destinationY = start.y + (translation.height / max(fieldSize.height, 1))
+
+        guard let nearest = nearestPoint(toX: destinationX, y: destinationY) else { return }
+
+        guard let sourceIndex = workingSlots.firstIndex(where: { $0.id == slotID }) else { return }
+        if let occupiedIndex = workingSlots.firstIndex(where: { $0.pointID == nearest.id && $0.id != slotID }) {
+            let previous = workingSlots[sourceIndex].pointID
+            workingSlots[sourceIndex].pointID = nearest.id
+            workingSlots[occupiedIndex].pointID = previous
+            if let updatedPoint = point(by: nearest.id) {
+                workingSlots[sourceIndex].label = positionLabel(for: updatedPoint)
+            }
+            if let swappedPoint = point(by: previous) {
+                workingSlots[occupiedIndex].label = positionLabel(for: swappedPoint)
+            }
+        } else {
+            workingSlots[sourceIndex].pointID = nearest.id
+            workingSlots[sourceIndex].label = positionLabel(for: nearest)
+        }
+    }
+
+    private func nearestPoint(toX x: CGFloat, y: CGFloat) -> TacticPoint? {
+        points.min { lhs, rhs in
+            let dl = hypot(lhs.x - x, lhs.y - y)
+            let dr = hypot(rhs.x - x, rhs.y - y)
+            return dl < dr
+        }
+    }
+
+    private func point(by id: String) -> TacticPoint? {
+        points.first(where: { $0.id == id })
+    }
+
+    private func normalized(_ slots: [TacticSlot]) -> [TacticSlot] {
+        slots.sorted { $0.id < $1.id }
+    }
+
+    private func resetCurrentChanges() {
+        guard let selectedTactic else { return }
+        workingSlots = selectedTactic.slots
+        dragOffsets = [:]
+        activeDragSlotID = nil
+    }
+
+    private var defaultTactics: [SavedTactic] {
+        [
+            SavedTactic(
+                id: "default-losange",
+                name: "Losange",
+                slots: [
+                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
+                    TacticSlot(id: "s2", label: "DC", pointID: "p3"),
+                    TacticSlot(id: "s3", label: "AG", pointID: "p5"),
+                    TacticSlot(id: "s4", label: "AD", pointID: "p8"),
+                    TacticSlot(id: "s5", label: "P", pointID: "p10"),
+                ]
+            ),
+            SavedTactic(
+                id: "default-22",
+                name: "2-2",
+                slots: [
+                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
+                    TacticSlot(id: "s2", label: "DG", pointID: "p2"),
+                    TacticSlot(id: "s3", label: "DD", pointID: "p4"),
+                    TacticSlot(id: "s4", label: "AG", pointID: "p9"),
+                    TacticSlot(id: "s5", label: "AD", pointID: "p11"),
+                ]
+            ),
+            SavedTactic(
+                id: "default-pivot",
+                name: "Pivot",
+                slots: [
+                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
+                    TacticSlot(id: "s2", label: "DC", pointID: "p3"),
+                    TacticSlot(id: "s3", label: "AG", pointID: "p6"),
+                    TacticSlot(id: "s4", label: "AD", pointID: "p7"),
+                    TacticSlot(id: "s5", label: "P", pointID: "p10"),
+                ]
+            ),
+        ]
+    }
+
+    private var uniformNodeColor: Color {
+        Color(red: 0.14, green: 0.43, blue: 0.89)
+    }
+
+    private func positionLabel(for point: TacticPoint) -> String {
+        if point.y > 0.82 { return "GK" }
+
+        if point.y > 0.66 {
+            if point.x < 0.30 { return "DG" }
+            if point.x > 0.70 { return "DD" }
+            return "DC"
+        }
+
+        if point.y > 0.52 {
+            if point.x < 0.30 { return "MG" }
+            if point.x > 0.70 { return "MD" }
+            return "MC"
+        }
+
+        if point.y > 0.34 {
+            if point.x < 0.30 { return "AG" }
+            if point.x > 0.70 { return "AD" }
+            return "MO"
+        }
+
+        if point.x < 0.30 { return "AG" }
+        if point.x > 0.70 { return "AD" }
+        return "BU"
     }
 }
 
-private struct TeamBenchChip: View {
-    let title: String
+private struct TeamTacticPositionNode: View {
+    let label: String
     let color: Color
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color.gradient)
-                .frame(width: 14, height: 14)
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        Circle()
+            .fill(color.gradient)
+            .frame(width: 50, height: 50)
+            .overlay {
+                Text(label)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .overlay(
+                Circle()
+                    .stroke(.white.opacity(0.82), lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
     }
 }
 
@@ -779,15 +1168,6 @@ private struct TeamStatsSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Chargement")
-                    Spacer()
-                }
-                .padding(.vertical, 24)
-            }
-
             Text("\(viewModel.playedMatchesCount) match(s) joué(s) analysé(s)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

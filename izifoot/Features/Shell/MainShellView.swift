@@ -6,6 +6,7 @@ struct MainShellView: View {
     @EnvironmentObject private var authStore: AuthStore
     @State private var selectedTab: AppTab = .planning
     @State private var unreadMessagesCount = 0
+    @State private var didSetInitialTab = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -15,9 +16,7 @@ struct MainShellView: View {
                 }
                 .tag(AppTab.planning)
 
-            NavigationStack {
-                MessagesView()
-            }
+            MessagesView()
                 .tabItem {
                     Label("Messages", systemImage: "message")
                 }
@@ -38,7 +37,10 @@ struct MainShellView: View {
                     .tag(AppTab.players)
             }
         }
+        .animation(nil, value: selectedTab)
         .task {
+            guard !didSetInitialTab else { return }
+            didSetInitialTab = true
             if let role = authStore.me?.role {
                 selectedTab = role.defaultTab
             }
