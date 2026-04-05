@@ -572,98 +572,119 @@ private struct PlanningDatePickerSheet: View {
     let matchdayDayKeys: Set<String>
 
     @State private var pickerMonth = PlanningDateHelpers.today
+    private let weekdayLabels = ["L", "Ma", "Me", "J", "V", "S", "D"]
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                HStack {
-                    Button {
-                        pickerMonth = PlanningDateHelpers.calendar.date(byAdding: .month, value: -1, to: pickerMonth) ?? pickerMonth
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .buttonStyle(.bordered)
+            VStack(spacing: 10) {
+                monthHeader
 
-                    Spacer()
+                ScrollView {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
+                        ForEach(Array(weekdayLabels.enumerated()), id: \.offset) { _, label in
+                            Text(label)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
 
-                    Text(PlanningDateHelpers.monthLabel(for: pickerMonth))
-                        .font(.headline)
+                        ForEach(calendarCells.indices, id: \.self) { index in
+                            if let date = calendarCells[index] {
+                                let key = PlanningDateHelpers.storageKey(for: date)
+                                let isSelected = key == PlanningDateHelpers.storageKey(for: selectedDate)
 
-                    Spacer()
-
-                    Button {
-                        pickerMonth = PlanningDateHelpers.calendar.date(byAdding: .month, value: 1, to: pickerMonth) ?? pickerMonth
-                    } label: {
-                        Image(systemName: "chevron.right")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 10) {
-                    ForEach(["L", "M", "M", "J", "V", "S", "D"], id: \.self) { label in
-                        Text(label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ForEach(calendarCells.indices, id: \.self) { index in
-                        if let date = calendarCells[index] {
-                            let key = PlanningDateHelpers.storageKey(for: date)
-                            let isSelected = key == PlanningDateHelpers.storageKey(for: selectedDate)
-
-                            Button {
-                                selectedDate = date
-                                dismiss()
-                            } label: {
-                                VStack(spacing: 6) {
-                                    Text("\(PlanningDateHelpers.calendar.component(.day, from: date))")
-                                        .font(.subheadline.weight(.medium))
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(trainingDayKeys.contains(key) ? Color.accentColor : .clear)
-                                            .frame(width: 6, height: 6)
-                                        Circle()
-                                            .fill(matchdayDayKeys.contains(key) ? Color.orange : .clear)
-                                            .frame(width: 6, height: 6)
+                                Button {
+                                    selectedDate = date
+                                    dismiss()
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        Text("\(PlanningDateHelpers.calendar.component(.day, from: date))")
+                                            .font(.subheadline.weight(.medium))
+                                        HStack(spacing: 4) {
+                                            Circle()
+                                                .fill(trainingDayKeys.contains(key) ? Color.accentColor : .clear)
+                                                .frame(width: 6, height: 6)
+                                            Circle()
+                                                .fill(matchdayDayKeys.contains(key) ? Color.orange : .clear)
+                                                .frame(width: 6, height: 6)
+                                        }
                                     }
+                                    .frame(maxWidth: .infinity, minHeight: 36)
+                                    .padding(.vertical, 4)
+                                    .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 }
-                                .frame(maxWidth: .infinity, minHeight: 42)
-                                .padding(.vertical, 6)
-                                .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .buttonStyle(.plain)
+                            } else {
+                                Color.clear
+                                    .frame(height: 36)
                             }
-                            .buttonStyle(.plain)
-                        } else {
-                            Color.clear
-                                .frame(height: 42)
                         }
                     }
                 }
+                .padding(.top, 4)
 
-                HStack(spacing: 16) {
-                    Label("Entraînement", systemImage: "circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                    Label("Plateau", systemImage: "circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                Spacer()
+                legend
             }
-            .padding(20)
-            .navigationTitle("Choisir une date")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Fermer") {
-                        dismiss()
-                    }
-                }
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                let components = PlanningDateHelpers.calendar.dateComponents([.year, .month], from: selectedDate)
-                pickerMonth = PlanningDateHelpers.calendar.date(from: components) ?? selectedDate
+                let components = PlanningDateHelpers.calendar.dateComponents([.year, .month], from: PlanningDateHelpers.today)
+                pickerMonth = PlanningDateHelpers.calendar.date(from: components) ?? PlanningDateHelpers.today
             }
         }
+    }
+
+    private var monthHeader: some View {
+        HStack {
+            Button {
+                pickerMonth = PlanningDateHelpers.calendar.date(byAdding: .month, value: -1, to: pickerMonth) ?? pickerMonth
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+
+            Spacer()
+
+            Button {
+                let components = PlanningDateHelpers.calendar.dateComponents([.year, .month], from: PlanningDateHelpers.today)
+                pickerMonth = PlanningDateHelpers.calendar.date(from: components) ?? PlanningDateHelpers.today
+            } label: {
+                Text(PlanningDateHelpers.monthLabel(for: pickerMonth))
+                    .font(.headline)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
+                pickerMonth = PlanningDateHelpers.calendar.date(byAdding: .month, value: 1, to: pickerMonth) ?? pickerMonth
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+        }
+        .padding(.bottom, 2)
+    }
+
+    private var legend: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 4) {
+                Circle().fill(Color.accentColor).frame(width: 8, height: 8)
+                Text("Entraînement")
+            }
+            HStack(spacing: 4) {
+                Circle().fill(Color.orange).frame(width: 8, height: 8)
+                Text("Plateau")
+            }
+        }
+        .font(.caption2.weight(.medium))
+        .padding(.top, 2)
     }
 
     private var calendarCells: [Date?] {
