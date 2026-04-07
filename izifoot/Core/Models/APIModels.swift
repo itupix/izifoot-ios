@@ -452,6 +452,9 @@ struct Matchday: Codable, Identifiable {
     let startTime: String?
     let meetingTime: String?
     let teamId: String?
+    let competitionType: String?
+    let tournamentHasGroupStage: Bool?
+    let tournamentKnockoutMode: String?
 }
 
 struct Drill: Codable, Identifiable {

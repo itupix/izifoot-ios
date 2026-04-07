@@ -420,7 +420,10 @@ final class IzifootAPI {
         teamID: String? = nil,
         teamName: String? = nil,
         startTime: String?,
-        meetingTime: String?
+        meetingTime: String?,
+        competitionType: String? = nil,
+        tournamentHasGroupStage: Bool? = nil,
+        tournamentKnockoutMode: String? = nil
     ) async throws -> Matchday {
         struct CreateMatchdayPayload: Encodable {
             let date: String
@@ -432,6 +435,9 @@ final class IzifootAPI {
             let active_team_id: String?
             let startTime: String?
             let meetingTime: String?
+            let competitionType: String?
+            let tournamentHasGroupStage: Bool?
+            let tournamentKnockoutMode: String?
         }
 
         return try await client.post(
@@ -445,7 +451,10 @@ final class IzifootAPI {
                 activeTeamId: teamID,
                 active_team_id: teamID,
                 startTime: startTime,
-                meetingTime: meetingTime
+                meetingTime: meetingTime,
+                competitionType: competitionType,
+                tournamentHasGroupStage: tournamentHasGroupStage,
+                tournamentKnockoutMode: tournamentKnockoutMode
             ),
             responseType: Matchday.self
         )

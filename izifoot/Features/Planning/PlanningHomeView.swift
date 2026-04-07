@@ -68,7 +68,10 @@ final class PlanningHomeViewModel: ObservableObject {
         teamName: String?,
         cacheKey: String,
         startTime: String? = nil,
-        meetingTime: String? = nil
+        meetingTime: String? = nil,
+        competitionType: String = "PLATEAU",
+        tournamentHasGroupStage: Bool? = nil,
+        tournamentKnockoutMode: String? = nil
     ) async {
         do {
             let newMatchday = try await api.createMatchday(
@@ -77,7 +80,10 @@ final class PlanningHomeViewModel: ObservableObject {
                 teamID: teamID,
                 teamName: teamName,
                 startTime: startTime,
-                meetingTime: meetingTime
+                meetingTime: meetingTime,
+                competitionType: competitionType,
+                tournamentHasGroupStage: tournamentHasGroupStage,
+                tournamentKnockoutMode: tournamentKnockoutMode
             )
             matchdays.insert(newMatchday, at: 0)
             await PersistentDataCache.shared.write(
@@ -86,6 +92,38 @@ final class PlanningHomeViewModel: ObservableObject {
             )
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+private enum CompetitionType: String, CaseIterable, Identifiable {
+    case plateau = "PLATEAU"
+    case match = "MATCH"
+    case tournoi = "TOURNOI"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .plateau: return "Plateau"
+        case .match: return "Match"
+        case .tournoi: return "Tournoi"
+        }
+    }
+}
+
+private enum TournamentKnockoutMode: String, CaseIterable, Identifiable {
+    case none = "NONE"
+    case single = "SINGLE"
+    case homeAway = "HOME_AWAY"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "Aucune"
+        case .single: return "Match simple"
+        case .homeAway: return "Aller / retour"
         }
     }
 }
@@ -99,8 +137,11 @@ struct PlanningHomeView: View {
     @StateObject private var viewModel = PlanningHomeViewModel()
     @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: nil)
     @State private var isDatePickerPresented = false
-    @State private var isPlateauSheetPresented = false
-    @State private var plateauLocation = ""
+    @State private var isCompetitionSheetPresented = false
+    @State private var competitionLocation = ""
+    @State private var competitionType: CompetitionType = .plateau
+    @State private var tournamentHasGroupStage = true
+    @State private var tournamentKnockoutMode: TournamentKnockoutMode = .single
     @State private var updatingTrainingIntentIDs: Set<String> = []
     private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
 
@@ -186,15 +227,18 @@ struct PlanningHomeView: View {
                     }
 
                     PlanningSectionCard(
-                        title: "Plateaux",
+                        title: "Compétitions",
                         actionTitle: teamScopedWritable ? "Ajouter" : nil,
                         onAction: teamScopedWritable ? {
-                            plateauLocation = ""
-                            isPlateauSheetPresented = true
+                            competitionLocation = ""
+                            competitionType = .plateau
+                            tournamentHasGroupStage = true
+                            tournamentKnockoutMode = .single
+                            isCompetitionSheetPresented = true
                         } : nil
                     ) {
                         if dayMatchdays.isEmpty {
-                            Text("Aucun plateau ce jour.")
+                            Text("Aucune compétition ce jour.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -204,7 +248,7 @@ struct PlanningHomeView: View {
                                         MatchdayDetailView(matchday: matchday)
                                     } label: {
                                         PlanningEventRow(
-                                            title: "Plateau — \(matchday.lieu ?? "Lieu non renseigné")",
+                                            title: "\(competitionTypeLabel(matchday)) — \(matchday.lieu ?? "Lieu non renseigné")",
                                             subtitle: teamSubtitle(for: matchday.teamId),
                                             systemImage: "trophy",
                                             tint: .orange
@@ -213,7 +257,7 @@ struct PlanningHomeView: View {
                                     .buttonStyle(.plain)
                                 } else {
                                     PlanningEventRow(
-                                        title: "Plateau — \(matchday.lieu ?? "Lieu non renseigné")",
+                                        title: "\(competitionTypeLabel(matchday)) — \(matchday.lieu ?? "Lieu non renseigné")",
                                         subtitle: teamSubtitle(for: matchday.teamId),
                                         systemImage: "trophy",
                                         tint: .orange
@@ -247,21 +291,27 @@ struct PlanningHomeView: View {
                 )
                 .presentationDetents([.medium])
             }
-            .sheet(isPresented: $isPlateauSheetPresented) {
-                CreatePlateauSheet(
+            .sheet(isPresented: $isCompetitionSheetPresented) {
+                CreateCompetitionSheet(
                     selectedDate: selectedDate,
-                    location: $plateauLocation,
+                    competitionType: $competitionType,
+                    location: $competitionLocation,
+                    tournamentHasGroupStage: $tournamentHasGroupStage,
+                    tournamentKnockoutMode: $tournamentKnockoutMode,
                     suggestedLocations: matchdayLocations
                 ) {
                     await viewModel.createMatchday(
                         date: selectedDate,
-                        location: plateauLocation.trimmingCharacters(in: .whitespacesAndNewlines),
+                        location: competitionLocation.trimmingCharacters(in: .whitespacesAndNewlines),
                         teamID: teamScopeStore.selectedTeamID,
                         teamName: selectedTeamName,
-                        cacheKey: dataCacheKey
+                        cacheKey: dataCacheKey,
+                        competitionType: competitionType.rawValue,
+                        tournamentHasGroupStage: competitionType == .tournoi ? tournamentHasGroupStage : nil,
+                        tournamentKnockoutMode: competitionType == .tournoi ? tournamentKnockoutMode.rawValue : nil
                     )
-                    plateauLocation = ""
-                    isPlateauSheetPresented = false
+                    competitionLocation = ""
+                    isCompetitionSheetPresented = false
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -389,6 +439,17 @@ struct PlanningHomeView: View {
             return trimmed.isEmpty ? nil : trimmed
         }))
         .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func competitionTypeLabel(_ matchday: Matchday) -> String {
+        switch matchday.competitionType?.uppercased() {
+        case "MATCH":
+            return "Match"
+        case "TOURNOI":
+            return "Tournoi"
+        default:
+            return "Plateau"
+        }
     }
 
     private func teamSubtitle(for teamID: String?) -> String? {
@@ -709,7 +770,7 @@ private struct PlanningDatePickerSheet: View {
             }
             HStack(spacing: 4) {
                 Circle().fill(Color.orange).frame(width: 8, height: 8)
-                Text("Plateau")
+                Text("Compétition")
             }
         }
         .font(.caption2.weight(.medium))
@@ -735,11 +796,14 @@ private struct PlanningDatePickerSheet: View {
     }
 }
 
-private struct CreatePlateauSheet: View {
+private struct CreateCompetitionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let selectedDate: Date
+    @Binding var competitionType: CompetitionType
     @Binding var location: String
+    @Binding var tournamentHasGroupStage: Bool
+    @Binding var tournamentKnockoutMode: TournamentKnockoutMode
     let suggestedLocations: [String]
     let onSubmit: () async -> Void
 
@@ -750,8 +814,28 @@ private struct CreatePlateauSheet: View {
                     Text(PlanningDateHelpers.title(for: selectedDate))
                 }
 
-                Section("Lieu du plateau") {
+                Section("Type de compétition") {
+                    Picker("Type", selection: $competitionType) {
+                        ForEach(CompetitionType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section(locationSectionTitle) {
                     TextField("Ex. Stade municipal", text: $location)
+                }
+
+                if competitionType == .tournoi {
+                    Section("Tournoi") {
+                        Toggle("Phase de groupes", isOn: $tournamentHasGroupStage)
+                        Picker("Phase élimination", selection: $tournamentKnockoutMode) {
+                            ForEach(TournamentKnockoutMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                    }
                 }
 
                 if !suggestedLocations.isEmpty {
@@ -764,7 +848,7 @@ private struct CreatePlateauSheet: View {
                     }
                 }
             }
-            .navigationTitle("Créer un plateau")
+            .navigationTitle("Créer une compétition")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") {
@@ -780,6 +864,14 @@ private struct CreatePlateauSheet: View {
                     .disabled(location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+        }
+    }
+
+    private var locationSectionTitle: String {
+        switch competitionType {
+        case .plateau: return "Lieu du plateau"
+        case .match: return "Lieu du match"
+        case .tournoi: return "Lieu du tournoi"
         }
     }
 }
