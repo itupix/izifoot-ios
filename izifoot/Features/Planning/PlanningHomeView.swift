@@ -69,9 +69,7 @@ final class PlanningHomeViewModel: ObservableObject {
         cacheKey: String,
         startTime: String? = nil,
         meetingTime: String? = nil,
-        competitionType: String = "PLATEAU",
-        tournamentHasGroupStage: Bool? = nil,
-        tournamentKnockoutMode: String? = nil
+        competitionType: String = "PLATEAU"
     ) async {
         do {
             let newMatchday = try await api.createMatchday(
@@ -81,9 +79,7 @@ final class PlanningHomeViewModel: ObservableObject {
                 teamName: teamName,
                 startTime: startTime,
                 meetingTime: meetingTime,
-                competitionType: competitionType,
-                tournamentHasGroupStage: tournamentHasGroupStage,
-                tournamentKnockoutMode: tournamentKnockoutMode
+                competitionType: competitionType
             )
             matchdays.insert(newMatchday, at: 0)
             await PersistentDataCache.shared.write(
@@ -112,22 +108,6 @@ private enum CompetitionType: String, CaseIterable, Identifiable {
     }
 }
 
-private enum TournamentKnockoutMode: String, CaseIterable, Identifiable {
-    case none = "NONE"
-    case single = "SINGLE"
-    case homeAway = "HOME_AWAY"
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .none: return "Aucune"
-        case .single: return "Match simple"
-        case .homeAway: return "Aller / retour"
-        }
-    }
-}
-
 struct PlanningHomeView: View {
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var teamScopeStore: TeamScopeStore
@@ -140,8 +120,6 @@ struct PlanningHomeView: View {
     @State private var isCompetitionSheetPresented = false
     @State private var competitionLocation = ""
     @State private var competitionType: CompetitionType = .plateau
-    @State private var tournamentHasGroupStage = true
-    @State private var tournamentKnockoutMode: TournamentKnockoutMode = .single
     @State private var updatingTrainingIntentIDs: Set<String> = []
     private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
 
@@ -232,8 +210,6 @@ struct PlanningHomeView: View {
                         onAction: teamScopedWritable ? {
                             competitionLocation = ""
                             competitionType = .plateau
-                            tournamentHasGroupStage = true
-                            tournamentKnockoutMode = .single
                             isCompetitionSheetPresented = true
                         } : nil
                     ) {
@@ -296,8 +272,6 @@ struct PlanningHomeView: View {
                     selectedDate: selectedDate,
                     competitionType: $competitionType,
                     location: $competitionLocation,
-                    tournamentHasGroupStage: $tournamentHasGroupStage,
-                    tournamentKnockoutMode: $tournamentKnockoutMode,
                     suggestedLocations: matchdayLocations
                 ) {
                     await viewModel.createMatchday(
@@ -306,9 +280,7 @@ struct PlanningHomeView: View {
                         teamID: teamScopeStore.selectedTeamID,
                         teamName: selectedTeamName,
                         cacheKey: dataCacheKey,
-                        competitionType: competitionType.rawValue,
-                        tournamentHasGroupStage: competitionType == .tournoi ? tournamentHasGroupStage : nil,
-                        tournamentKnockoutMode: competitionType == .tournoi ? tournamentKnockoutMode.rawValue : nil
+                        competitionType: competitionType.rawValue
                     )
                     competitionLocation = ""
                     isCompetitionSheetPresented = false
@@ -802,8 +774,6 @@ private struct CreateCompetitionSheet: View {
     let selectedDate: Date
     @Binding var competitionType: CompetitionType
     @Binding var location: String
-    @Binding var tournamentHasGroupStage: Bool
-    @Binding var tournamentKnockoutMode: TournamentKnockoutMode
     let suggestedLocations: [String]
     let onSubmit: () async -> Void
 
@@ -824,21 +794,10 @@ private struct CreateCompetitionSheet: View {
                 }
 
                 Section(locationSectionTitle) {
-                    TextField("Ex. Stade municipal", text: $location)
+                    TextField(competitionType == .tournoi ? "Ex. Tournoi de printemps U11" : "Ex. Stade municipal", text: $location)
                 }
 
-                if competitionType == .tournoi {
-                    Section("Tournoi") {
-                        Toggle("Phase de groupes", isOn: $tournamentHasGroupStage)
-                        Picker("Phase élimination", selection: $tournamentKnockoutMode) {
-                            ForEach(TournamentKnockoutMode.allCases) { mode in
-                                Text(mode.label).tag(mode)
-                            }
-                        }
-                    }
-                }
-
-                if !suggestedLocations.isEmpty {
+                if competitionType != .tournoi, !suggestedLocations.isEmpty {
                     Section("Lieux déjà utilisés") {
                         ForEach(suggestedLocations, id: \.self) { suggestion in
                             Button(suggestion) {
@@ -871,7 +830,7 @@ private struct CreateCompetitionSheet: View {
         switch competitionType {
         case .plateau: return "Lieu du plateau"
         case .match: return "Lieu du match"
-        case .tournoi: return "Lieu du tournoi"
+        case .tournoi: return "Nom du tournoi"
         }
     }
 }

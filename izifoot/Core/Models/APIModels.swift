@@ -1059,6 +1059,8 @@ struct PlanningData: Codable {
     var restEveryX: Int?
     var allowRematches: Bool?
     var regenSeed: Int?
+    var tournamentFormat: String?
+    var tournamentWithPools: Bool?
     var teams: [PlanningTeam]
     var slots: [PlanningSlot]
 }

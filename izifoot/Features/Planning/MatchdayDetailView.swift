@@ -236,7 +236,7 @@ final class MatchdayDetailViewModel: ObservableObject {
         defer { isUpdatingMatches = false }
 
         let payload = MatchPayload(
-            type: "PLATEAU",
+            type: normalizedCompetitionType == "MATCH" ? "MATCH" : "PLATEAU",
             matchdayId: matchday.id,
             sides: .empty,
             score: MatchScorePayload(
@@ -263,6 +263,10 @@ final class MatchdayDetailViewModel: ObservableObject {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
             return false
         }
+    }
+
+    var normalizedCompetitionType: String {
+        (matchday.competitionType ?? "PLATEAU").uppercased()
     }
 
     func deleteMatch(id: String) async {
@@ -332,13 +336,23 @@ final class MatchdayDetailViewModel: ObservableObject {
             try await api.deleteMatch(id: match.id)
         }
 
+        let isTournamentCompetition = normalizedCompetitionType == "TOURNOI"
         let clubTeamLabels = resolveClubTeamLabels(in: data)
 
         for (slotIndex, slot) in data.slots.enumerated() {
-            for (gameIndex, game) in slot.games.enumerated() where clubTeamLabels.contains(game.a) || clubTeamLabels.contains(game.b) {
-                let opponent = clubTeamLabels.contains(game.a) ? game.b : game.a
+            for (gameIndex, game) in slot.games.enumerated() where isTournamentCompetition || clubTeamLabels.contains(game.a) || clubTeamLabels.contains(game.b) {
+                let opponent: String
+                if isTournamentCompetition {
+                    if clubTeamLabels.contains(game.a) || clubTeamLabels.contains(game.b) {
+                        opponent = clubTeamLabels.contains(game.a) ? game.b : game.a
+                    } else {
+                        opponent = "\(game.a) vs \(game.b)"
+                    }
+                } else {
+                    opponent = clubTeamLabels.contains(game.a) ? game.b : game.a
+                }
                 let payload = MatchPayload(
-                    type: "PLATEAU",
+                    type: isTournamentCompetition ? "TOURNOI" : "PLATEAU",
                     matchdayId: matchday.id,
                     sides: .empty,
                     score: MatchScorePayload(home: 0, away: 0),
@@ -521,7 +535,7 @@ struct MatchdayDetailView: View {
             }
         }
         .confirmationDialog(
-            "Supprimer le plateau ?",
+            "Supprimer \(competitionLabel.lowercased()) ?",
             isPresented: $isDeleteMatchdayConfirmationPresented,
             titleVisibility: .visible
         ) {
@@ -535,23 +549,28 @@ struct MatchdayDetailView: View {
             }
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Le plateau, son planning et ses matchs associés seront supprimés.")
+            Text("Cette compétition et ses matchs associés seront supprimés.")
         }
         .navigationDestination(isPresented: $isPlanningDetailPresented) {
-            MatchdayPlanningDetailView(
-                rotation: viewModel.summary?.rotation,
+            if !isMatchCompetition {
+                MatchdayPlanningDetailView(
+                    rotation: viewModel.summary?.rotation,
                 planning: viewModel.planning,
                 clubName: viewModel.clubName,
+                competitionType: viewModel.normalizedCompetitionType,
                 writable: writable,
                 isSaving: viewModel.isUpdatingMatches,
-                planningSaveRevision: viewModel.planningSaveRevision,
-                onSave: { planningData in
-                    await viewModel.savePlanning(data: planningData)
-                },
-                onDelete: {
-                await viewModel.deletePlanningAndRotationMatches()
-                }
-            )
+                    planningSaveRevision: viewModel.planningSaveRevision,
+                    onSave: { planningData in
+                        await viewModel.savePlanning(data: planningData)
+                    },
+                    onDelete: {
+                        await viewModel.deletePlanningAndRotationMatches()
+                    }
+                )
+            } else {
+                EmptyView()
+            }
         }
         .sheet(item: $selectedMatchDestination) { destination in
             MatchdayMatchesPagerSheet(
@@ -580,14 +599,17 @@ struct MatchdayDetailView: View {
                 isEditSchedulePresented = true
             }
 
-            MatchdayPlanningCard {
-                isPlanningDetailPresented = true
+            if !isMatchCompetition {
+                MatchdayPlanningCard {
+                    isPlanningDetailPresented = true
+                }
             }
 
             MatchdayMatchesCard(
                 matches: viewModel.matches,
                 rotation: viewModel.summary?.rotation,
                 clubName: viewModel.clubName,
+                competitionType: viewModel.normalizedCompetitionType,
                 playerNamesByID: playerNamesByID,
                 writable: writable,
                 onCreateManual: {
@@ -600,6 +622,10 @@ struct MatchdayDetailView: View {
                     await viewModel.deleteMatch(id: match.id)
                 }
             )
+
+            if isTournamentChampionship {
+                TournamentStandingsCard(rows: tournamentStandings)
+            }
 
             MatchdayPlayersCard(
                 players: filteredPlayers,
@@ -617,6 +643,14 @@ struct MatchdayDetailView: View {
         guard let role = authStore.me?.role else { return false }
         let requiresSelection = (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty
         return (role == .direction || role == .coach) && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
+    }
+
+    private var isMatchCompetition: Bool {
+        viewModel.normalizedCompetitionType == "MATCH"
+    }
+
+    private var competitionLabel: String {
+        isMatchCompetition ? "Match" : "Plateau"
     }
 
     private var filteredPlayers: [Player] {
@@ -694,6 +728,158 @@ struct MatchdayDetailView: View {
         )
     }
 
+    private var isTournamentChampionship: Bool {
+        isMatchCompetition == false
+            && viewModel.normalizedCompetitionType == "TOURNOI"
+            && (viewModel.planning?.data?.tournamentFormat ?? "CHAMPIONNAT") == "CHAMPIONNAT"
+    }
+
+    private var tournamentStandings: [TournamentStandingRow] {
+        guard isTournamentChampionship else { return [] }
+        let planningData = viewModel.planning?.data
+        let planningTeams = planningData?.teams.map(\.label) ?? []
+        let slotGames = planningData?.slots ?? []
+        let gameByKey: [String: (String, String)] = Dictionary(uniqueKeysWithValues: slotGames.enumerated().flatMap { slotIndex, slot in
+            slot.games.enumerated().map { gameIndex, game in
+                ("slot:\(slotIndex):game:\(gameIndex)", (game.a, game.b))
+            }
+        })
+
+        var rows = Dictionary(uniqueKeysWithValues: planningTeams.map {
+            ($0, TournamentStandingRow(team: $0, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, points: 0))
+        })
+
+        for match in viewModel.matches {
+            if (match.status?.uppercased() ?? "") == "CANCELLED" { continue }
+            let played = (match.status?.uppercased() == "PLAYED") || match.played == true
+            if !played { continue }
+
+            let teams: (String, String)?
+            if let key = match.rotationGameKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !key.isEmpty,
+               let pair = gameByKey[key] {
+                teams = pair
+            } else if let opponent = match.opponentName {
+                let parts = opponent.components(separatedBy: " vs ").map {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                teams = parts.count == 2 ? (parts[0], parts[1]) : nil
+            } else {
+                teams = nil
+            }
+            guard let (teamA, teamB) = teams else { continue }
+
+            if rows[teamA] == nil {
+                rows[teamA] = TournamentStandingRow(team: teamA, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, points: 0)
+            }
+            if rows[teamB] == nil {
+                rows[teamB] = TournamentStandingRow(team: teamB, played: 0, won: 0, draw: 0, lost: 0, gf: 0, ga: 0, points: 0)
+            }
+
+            let homeScore = match.teams.first(where: { $0.side == "home" })?.score ?? 0
+            let awayScore = match.teams.first(where: { $0.side == "away" })?.score ?? 0
+
+            var rowA = rows[teamA]!
+            var rowB = rows[teamB]!
+
+            rowA.played += 1
+            rowB.played += 1
+            rowA.gf += homeScore
+            rowA.ga += awayScore
+            rowB.gf += awayScore
+            rowB.ga += homeScore
+
+            if homeScore > awayScore {
+                rowA.won += 1
+                rowA.points += 3
+                rowB.lost += 1
+            } else if awayScore > homeScore {
+                rowB.won += 1
+                rowB.points += 3
+                rowA.lost += 1
+            } else {
+                rowA.draw += 1
+                rowB.draw += 1
+                rowA.points += 1
+                rowB.points += 1
+            }
+
+            rows[teamA] = rowA
+            rows[teamB] = rowB
+        }
+
+        return rows.values.sorted {
+            if $0.points != $1.points { return $0.points > $1.points }
+            if $0.goalDiff != $1.goalDiff { return $0.goalDiff > $1.goalDiff }
+            if $0.gf != $1.gf { return $0.gf > $1.gf }
+            return $0.team.localizedCaseInsensitiveCompare($1.team) == .orderedAscending
+        }
+    }
+
+}
+
+private struct TournamentStandingRow: Identifiable {
+    let team: String
+    var played: Int
+    var won: Int
+    var draw: Int
+    var lost: Int
+    var gf: Int
+    var ga: Int
+    var points: Int
+    var id: String { team }
+    var goalDiff: Int { gf - ga }
+}
+
+private struct TournamentStandingsCard: View {
+    let rows: [TournamentStandingRow]
+
+    var body: some View {
+        DetailCard {
+            HStack(spacing: 8) {
+                SectionHeaderLabel(title: "Classement", systemImage: "list.number")
+                Spacer()
+            }
+
+            if rows.isEmpty {
+                Text("Aucun match joué pour le moment.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text("#").frame(width: 20, alignment: .leading)
+                        Text("Équipe").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Pts").frame(width: 36, alignment: .trailing)
+                        Text("J").frame(width: 24, alignment: .trailing)
+                        Text("G").frame(width: 24, alignment: .trailing)
+                        Text("N").frame(width: 24, alignment: .trailing)
+                        Text("P").frame(width: 24, alignment: .trailing)
+                        Text("Diff").frame(width: 42, alignment: .trailing)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)").frame(width: 20, alignment: .leading)
+                            Text(row.team).frame(maxWidth: .infinity, alignment: .leading)
+                            Text("\(row.points)").frame(width: 36, alignment: .trailing)
+                            Text("\(row.played)").frame(width: 24, alignment: .trailing)
+                            Text("\(row.won)").frame(width: 24, alignment: .trailing)
+                            Text("\(row.draw)").frame(width: 24, alignment: .trailing)
+                            Text("\(row.lost)").frame(width: 24, alignment: .trailing)
+                            Text(row.goalDiff > 0 ? "+\(row.goalDiff)" : "\(row.goalDiff)").frame(width: 42, alignment: .trailing)
+                        }
+                        .font(.subheadline)
+                        if index < rows.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct MatchdayDetailScaffold: View {
@@ -742,7 +928,7 @@ private struct MatchdayDetailScaffold: View {
 
     private var lifecycleView: some View {
         loadingView
-            .navigationTitle("Plateau")
+            .navigationTitle(viewModel.normalizedCompetitionType == "MATCH" ? "Match" : "Plateau")
             .navigationBarTitleDisplayMode(.large)
             .task {
                 await viewModel.load()
@@ -928,6 +1114,7 @@ private struct MatchdayPlanningDetailView: View {
     let rotation: MatchdayRotationSummary?
     let planning: Planning?
     let clubName: String?
+    let competitionType: String
     let writable: Bool
     let isSaving: Bool
     let planningSaveRevision: Int
@@ -981,6 +1168,7 @@ private struct MatchdayPlanningDetailView: View {
                 isPresented: $isEditorPresented,
                 initialData: planning?.data,
                 clubName: clubName,
+                competitionType: competitionType,
                 isSaving: isSaving,
                 onSave: onSave
             )
@@ -1146,6 +1334,7 @@ private struct MatchdayMatchesCard: View {
     let matches: [MatchLite]
     let rotation: MatchdayRotationSummary?
     let clubName: String?
+    let competitionType: String
     let playerNamesByID: [String: String]
     let writable: Bool
     let onCreateManual: () -> Void
@@ -1173,6 +1362,7 @@ private struct MatchdayMatchesCard: View {
                 matches: matches,
                 rotation: rotation,
                 clubName: clubName,
+                competitionType: competitionType,
                 playerNamesByID: playerNamesByID,
                 writable: writable,
                 onOpen: onEditManual,
@@ -1186,6 +1376,7 @@ private struct ManualMatchesContent: View {
     let matches: [MatchLite]
     let rotation: MatchdayRotationSummary?
     let clubName: String?
+    let competitionType: String
     let playerNamesByID: [String: String]
     let writable: Bool
     let onOpen: (MatchLite) -> Void
@@ -1217,7 +1408,7 @@ private struct ManualMatchesContent: View {
                             .foregroundStyle(.secondary)
 
                         ForEach(sortedPlanningMatches) { match in
-                            matchRow(match, allowsDelete: false)
+                            matchRow(match, allowsDelete: isTournamentCompetition && writable)
                         }
                     }
                 }
@@ -1262,6 +1453,10 @@ private struct ManualMatchesContent: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var isTournamentCompetition: Bool {
+        competitionType.uppercased() == "TOURNOI"
     }
 
     private func normalizedRotationKey(for match: MatchLite) -> String? {
@@ -3380,6 +3575,7 @@ private struct PlanningEditorSheet: View {
     @Binding var isPresented: Bool
     let initialData: PlanningData?
     let clubName: String?
+    let competitionType: String
     let isSaving: Bool
     let onSave: (PlanningData) async -> Bool
 
@@ -3391,6 +3587,8 @@ private struct PlanningEditorSheet: View {
     @State private var maxConsecutiveMatches: Int
     @State private var allowsIntraClubMatches: Bool
     @State private var allowRematches: Bool
+    @State private var tournamentFormat: String
+    @State private var tournamentWithPools: Bool
     @State private var regenSeed: Int
     @State private var teamNames: [String]
     @State private var newTeamName: String
@@ -3400,12 +3598,14 @@ private struct PlanningEditorSheet: View {
         isPresented: Binding<Bool>,
         initialData: PlanningData?,
         clubName: String?,
+        competitionType: String,
         isSaving: Bool,
         onSave: @escaping (PlanningData) async -> Bool
     ) {
         _isPresented = isPresented
         self.initialData = initialData
         self.clubName = clubName
+        self.competitionType = competitionType
         self.isSaving = isSaving
         self.onSave = onSave
         let initialTeamNames = initialData?.teams.map(\.label) ?? (clubName.map { ["\($0) 1", "\($0) 2"] } ?? [])
@@ -3417,6 +3617,8 @@ private struct PlanningEditorSheet: View {
         _maxConsecutiveMatches = State(initialValue: initialData?.restEveryX ?? 2)
         _allowsIntraClubMatches = State(initialValue: !(initialData?.forbidIntraClub ?? false))
         _allowRematches = State(initialValue: initialData?.allowRematches ?? false)
+        _tournamentFormat = State(initialValue: initialData?.tournamentFormat == "ELIMINATION" ? "ELIMINATION" : "CHAMPIONNAT")
+        _tournamentWithPools = State(initialValue: initialData?.tournamentWithPools ?? false)
         _regenSeed = State(initialValue: initialData?.regenSeed ?? Int.random(in: 1...Int.max))
         _teamNames = State(initialValue: initialTeamNames)
         _newTeamName = State(initialValue: "")
@@ -3430,10 +3632,20 @@ private struct PlanningEditorSheet: View {
                     Stepper("Terrains: \(pitches)", value: $pitches, in: 1...8)
                     Stepper("Durée match: \(matchMin) min", value: $matchMin, in: 5...60)
                     Stepper("Pause: \(breakMin) min", value: $breakMin, in: 0...20)
-                    Stepper("Nombre max de matchs par équipe: \(matchesPerTeam)", value: $matchesPerTeam, in: 1...20)
-                    Stepper("Nombre max de matchs d'affilée: \(maxConsecutiveMatches)", value: $maxConsecutiveMatches, in: 1...10)
-                    Toggle("Autoriser les matchs entre équipes d'un même club", isOn: $allowsIntraClubMatches)
-                    Toggle("Autoriser les rematchs", isOn: $allowRematches)
+                    if isTournament {
+                        Picker("Format", selection: $tournamentFormat) {
+                            Text("Championnat").tag("CHAMPIONNAT")
+                            Text("Élimination").tag("ELIMINATION")
+                        }
+                        if tournamentFormat == "ELIMINATION" {
+                            Toggle("Matchs de poules", isOn: $tournamentWithPools)
+                        }
+                    } else {
+                        Stepper("Nombre max de matchs par équipe: \(matchesPerTeam)", value: $matchesPerTeam, in: 1...20)
+                        Stepper("Nombre max de matchs d'affilée: \(maxConsecutiveMatches)", value: $maxConsecutiveMatches, in: 1...10)
+                        Toggle("Autoriser les matchs entre équipes d'un même club", isOn: $allowsIntraClubMatches)
+                        Toggle("Autoriser les rematchs", isOn: $allowRematches)
+                    }
                 }
 
                 Section("Équipes") {
@@ -3591,17 +3803,22 @@ private struct PlanningEditorSheet: View {
             pitches: pitches,
             matchMin: matchMin,
             breakMin: breakMin,
-            forbidIntraClub: !allowsIntraClubMatches,
-            matchesPerTeam: matchesPerTeam,
-            restEveryX: maxConsecutiveMatches,
-            allowRematches: allowRematches,
+            forbidIntraClub: isTournament ? nil : !allowsIntraClubMatches,
+            matchesPerTeam: isTournament ? nil : matchesPerTeam,
+            restEveryX: isTournament ? nil : maxConsecutiveMatches,
+            allowRematches: isTournament ? nil : allowRematches,
             regenSeed: regenSeed,
+            tournamentFormat: isTournament ? tournamentFormat : nil,
+            tournamentWithPools: isTournament ? tournamentWithPools : nil,
             teams: planningTeams,
             slots: generatedSlots
         )
     }
 
     private func buildScheduledGames(from labels: [String]) -> [[(String, String)]] {
+        if isTournament {
+            return buildTournamentGames(from: labels)
+        }
         let teams = labels
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -3705,6 +3922,89 @@ private struct PlanningEditorSheet: View {
         return slots
     }
 
+    private func buildTournamentGames(from labels: [String]) -> [[(String, String)]] {
+        let teams = labels
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard teams.count > 1, pitches > 0 else { return [] }
+
+        let championshipRounds = buildRoundRobinRounds(from: teams)
+        if tournamentFormat == "CHAMPIONNAT" {
+            return championshipRounds.flatMap { chunkGames($0, size: pitches) }
+        }
+
+        var result: [[(String, String)]] = []
+        if tournamentWithPools {
+            result.append(contentsOf: championshipRounds.flatMap { chunkGames($0, size: pitches) })
+        }
+
+        var generator = SeededGenerator(state: UInt64(max(regenSeed, 1)))
+        var current = teams.shuffled(using: &generator)
+        while current.count > 1 {
+            var round: [(String, String)] = []
+            var next: [String] = []
+            var index = 0
+            while index < current.count {
+                if index + 1 >= current.count {
+                    next.append(current[index])
+                    break
+                }
+                let lhs = current[index]
+                let rhs = current[index + 1]
+                round.append((lhs, rhs))
+                next.append("Vainqueur \(lhs) vs \(rhs)")
+                index += 2
+            }
+            if !round.isEmpty {
+                result.append(contentsOf: chunkGames(round, size: pitches))
+            }
+            current = next
+        }
+        return result
+    }
+
+    private func buildRoundRobinRounds(from teams: [String]) -> [[(String, String)]] {
+        guard teams.count > 1 else { return [] }
+        var generator = SeededGenerator(state: UInt64(max(regenSeed, 1)))
+        var rotating = teams.shuffled(using: &generator)
+        if rotating.count % 2 == 1 {
+            rotating.append("__BYE__")
+        }
+
+        let roundsCount = rotating.count - 1
+        var rounds: [[(String, String)]] = []
+        for _ in 0..<roundsCount {
+            var round: [(String, String)] = []
+            for index in 0..<(rotating.count / 2) {
+                let lhs = rotating[index]
+                let rhs = rotating[rotating.count - 1 - index]
+                if lhs == "__BYE__" || rhs == "__BYE__" { continue }
+                round.append((lhs, rhs))
+            }
+            rounds.append(round)
+
+            let fixed = rotating.first ?? "__BYE__"
+            var tail = Array(rotating.dropFirst())
+            if let moved = tail.popLast() {
+                tail.insert(moved, at: 0)
+            }
+            rotating = [fixed] + tail
+        }
+        return rounds
+    }
+
+    private func chunkGames(_ games: [(String, String)], size: Int) -> [[(String, String)]] {
+        guard size > 0 else { return [] }
+        var chunks: [[(String, String)]] = []
+        var index = 0
+        while index < games.count {
+            let upperBound = min(index + size, games.count)
+            chunks.append(Array(games[index..<upperBound]))
+            index = upperBound
+        }
+        return chunks
+    }
+
     private func teamGroupKey(for label: String) -> String {
         let normalized = label
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3757,6 +4057,10 @@ private struct PlanningEditorSheet: View {
 
     private func teamColor(for label: String) -> Color {
         planningTeams.first(where: { $0.label == label }).flatMap { Color(hex: $0.color) } ?? .secondary
+    }
+
+    private var isTournament: Bool {
+        competitionType.uppercased() == "TOURNOI"
     }
 
     private static func time(from value: String) -> Date {
