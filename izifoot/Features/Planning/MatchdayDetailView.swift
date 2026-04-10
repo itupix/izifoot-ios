@@ -650,7 +650,14 @@ struct MatchdayDetailView: View {
     }
 
     private var competitionLabel: String {
-        isMatchCompetition ? "Match" : "Plateau"
+        switch viewModel.normalizedCompetitionType {
+        case "MATCH":
+            return "Match"
+        case "TOURNOI":
+            return "Tournoi"
+        default:
+            return "Plateau"
+        }
     }
 
     private var filteredPlayers: [Player] {
@@ -928,7 +935,7 @@ private struct MatchdayDetailScaffold: View {
 
     private var lifecycleView: some View {
         loadingView
-            .navigationTitle(viewModel.normalizedCompetitionType == "MATCH" ? "Match" : "Plateau")
+            .navigationTitle(screenTitle)
             .navigationBarTitleDisplayMode(.large)
             .task {
                 await viewModel.load()
@@ -1009,6 +1016,22 @@ private struct MatchdayDetailScaffold: View {
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
+    }
+
+    private var screenTitle: String {
+        switch viewModel.normalizedCompetitionType {
+        case "MATCH":
+            return "Match"
+        case "TOURNOI":
+            let tournamentName = viewModel.matchday.lieu?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !tournamentName.isEmpty {
+                return tournamentName
+            }
+            let fallbackName = viewModel.matchday.address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return fallbackName.isEmpty ? "Tournoi" : fallbackName
+        default:
+            return "Plateau"
+        }
     }
 }
 
@@ -1095,7 +1118,7 @@ private struct MatchdayPlanningCard: View {
         Button(action: onTap) {
             DetailCard {
                 HStack(spacing: 12) {
-                    SectionHeaderLabel(title: "Planning", systemImage: "calendar")
+                    SectionHeaderLabel(title: "Organiser", systemImage: "calendar")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
@@ -1132,7 +1155,7 @@ private struct MatchdayPlanningDetailView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 32)
         }
-        .navigationTitle("Planning")
+        .navigationTitle("Organiser")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color(uiColor: .systemGroupedBackground))
         .toolbar {
@@ -1177,7 +1200,7 @@ private struct MatchdayPlanningDetailView: View {
             isEditorPresented = false
         }
         .confirmationDialog(
-            "Supprimer le planning ?",
+            "Supprimer l'organisation ?",
             isPresented: $isDeleteConfirmationPresented,
             titleVisibility: .visible
         ) {
@@ -1193,7 +1216,7 @@ private struct MatchdayPlanningDetailView: View {
             }
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Le planning et les matchs liés à la rotation seront supprimés.")
+            Text("L'organisation et les matchs liés à la rotation seront supprimés.")
         }
     }
 
@@ -1403,7 +1426,7 @@ private struct ManualMatchesContent: View {
 
                 if !sortedPlanningMatches.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Matchs issus du planning")
+                        Text("Matchs issus de l'organisation")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
 
@@ -1638,7 +1661,7 @@ private struct RotationMatchesContent: View {
 
     private var emptyMessage: String {
         if rotation == nil {
-            return fallbackMatches.isEmpty ? "Aucune rotation enregistrée pour ce plateau." : "Aucun match."
+            return fallbackMatches.isEmpty ? "Aucune rotation enregistrée pour cette compétition." : "Aucun match."
         }
         if selectedTeam != "Toutes les équipes" {
             return "Aucun créneau pour cette équipe."
@@ -2049,6 +2072,7 @@ private struct MatchdayMatchDetailView: View {
     var body: some View {
         Group {
             if let match = viewModel.matchDetail ?? matchProvider(viewModel.matchID).map(MatchdayMatchDetailViewModel.makeDetailFallback(from:)) {
+                let isExternalMatch = match.isExternalMatch
                 List {
                     VStack(alignment: .leading, spacing: 20) {
                         MatchDetailHeroCard(
@@ -2061,13 +2085,16 @@ private struct MatchdayMatchDetailView: View {
                             onApplyScoreEdit: { homeScore, awayScore, scorerCounts in
                                 viewModel.applyScoreDraft(homeScore: homeScore, awayScore: awayScore, scorerCounts: scorerCounts)
                             },
+                            allowsScorerEditing: !isExternalMatch,
                             isEditing: $isEditingScore
                         )
 
-                        MatchLineupCard(
-                            detail: match,
-                            viewModel: viewModel
-                        )
+                        if !isExternalMatch {
+                            MatchLineupCard(
+                                detail: match,
+                                viewModel: viewModel
+                            )
+                        }
                     }
                     .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
                     .listRowSeparator(.hidden)
@@ -2734,6 +2761,24 @@ private extension MatchDetail {
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    var externalTeams: (home: String, away: String)? {
+        guard let opponentName else { return nil }
+        let separators = [" vs ", " VS ", " Vs ", " v ", " V ", " - "]
+        for separator in separators {
+            let parts = opponentName.components(separatedBy: separator).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
+                return (parts[0], parts[1])
+            }
+        }
+        return nil
+    }
+
+    var isExternalMatch: Bool {
+        externalTeams != nil
+    }
 }
 
 private struct LineupPresetOption: Identifiable, Hashable {
@@ -3010,6 +3055,7 @@ private struct MatchDetailHeroCard: View {
     let availableScorerIDs: [String]
     let scorerDisplayName: (String) -> String
     let onApplyScoreEdit: (Int, Int, [String: Int]) -> Void
+    let allowsScorerEditing: Bool
     @Binding var isEditing: Bool
 
     @State private var draftHomeScore: Int = 0
@@ -3169,18 +3215,20 @@ private struct MatchDetailHeroCard: View {
             scoreEditorRow(title: homeTeamName, score: $draftHomeScore)
             scoreEditorRow(title: awayTeamName, score: $draftAwayScore)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Buteurs")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
+            if allowsScorerEditing {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Buteurs")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
 
-                if availableScorerIDs.isEmpty {
-                    Text("Aucun joueur disponible pour ce match.")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.78))
-                } else {
-                    ForEach(availableScorerIDs, id: \.self) { playerID in
-                        scorerCounterRow(playerID: playerID)
+                    if availableScorerIDs.isEmpty {
+                        Text("Aucun joueur disponible pour ce match.")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.78))
+                    } else {
+                        ForEach(availableScorerIDs, id: \.self) { playerID in
+                            scorerCounterRow(playerID: playerID)
+                        }
                     }
                 }
             }
@@ -3258,7 +3306,10 @@ private struct MatchDetailHeroCard: View {
     }
 
     private var homeTeamName: String {
-        clubName?.isEmpty == false ? clubName! : "Nous"
+        if let externalTeams = match.externalTeams {
+            return externalTeams.home
+        }
+        return clubName?.isEmpty == false ? clubName! : "Nous"
     }
 
     private var awayScore: Int {
@@ -3266,7 +3317,10 @@ private struct MatchDetailHeroCard: View {
     }
 
     private var awayTeamName: String {
-        match.opponentName ?? "Adversaire"
+        if let externalTeams = match.externalTeams {
+            return externalTeams.away
+        }
+        return match.opponentName ?? "Adversaire"
     }
 
     private var centerPrimaryLabel: String {
@@ -3727,7 +3781,7 @@ private struct PlanningEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle("Modifier le planning")
+            .navigationTitle("Modifier l'organisation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
