@@ -10,11 +10,13 @@ final class AuthStore: ObservableObject {
 
     private let api: IzifootAPI
     private let tokenStore: TokenStoreProtocol
+    private var cancellables = Set<AnyCancellable>()
 
     init(api: IzifootAPI = IzifootAPI(), tokenStore: TokenStoreProtocol = TokenStore.shared) {
         self.api = api
         self.tokenStore = tokenStore
         self.me = tokenStore.cachedMe
+        subscribeToSessionExpiry()
     }
 
     var isLoading: Bool { isRestoringSession || isAuthenticating }
@@ -35,9 +37,7 @@ final class AuthStore: ObservableObject {
             tokenStore.cachedMe = refreshedMe
         } catch {
             if case APIError.unauthorized = error {
-                tokenStore.token = nil
-                tokenStore.cachedMe = nil
-                me = nil
+                clearSession()
             }
         }
     }
@@ -94,9 +94,7 @@ final class AuthStore: ObservableObject {
             tokenStore.cachedMe = refreshedMe
         } catch {
             if case APIError.unauthorized = error {
-                tokenStore.token = nil
-                tokenStore.cachedMe = nil
-                me = nil
+                clearSession()
             } else {
                 if !error.isCancellationError { errorMessage = error.localizedDescription }
             }
@@ -113,8 +111,22 @@ final class AuthStore: ObservableObject {
             // Keep logout resilient even if backend call fails.
         }
 
+        clearSession()
+    }
+
+    private func subscribeToSessionExpiry() {
+        NotificationCenter.default.publisher(for: .sessionDidExpire)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.clearSession()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func clearSession() {
         tokenStore.token = nil
         tokenStore.cachedMe = nil
+        AppSession.shared.activeTeamID = nil
         me = nil
     }
 }

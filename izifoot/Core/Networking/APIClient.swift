@@ -26,6 +26,10 @@ enum APIError: Error, LocalizedError {
     }
 }
 
+extension Notification.Name {
+    static let sessionDidExpire = Notification.Name("sessionDidExpire")
+}
+
 extension Error {
     var isCancellationError: Bool {
         if self is CancellationError { return true }
@@ -114,6 +118,10 @@ final class APIClient: APIClientProtocol {
 
             guard 200 ... 299 ~= httpResponse.statusCode else {
                 if httpResponse.statusCode == 401 {
+                    tokenStore.token = nil
+                    tokenStore.cachedMe = nil
+                    AppSession.shared.activeTeamID = nil
+                    NotificationCenter.default.post(name: .sessionDidExpire, object: nil)
                     throw APIError.unauthorized
                 }
                 let message = Self.parseMessage(from: data) ?? "HTTP \(httpResponse.statusCode)"
