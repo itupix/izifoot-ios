@@ -119,6 +119,7 @@ final class DrillsHomeViewModel: ObservableObject {
 
 struct DrillsHomeView: View {
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = DrillsHomeViewModel()
     @State private var isSheetPresented = false
     @State private var searchText = ""
@@ -127,6 +128,13 @@ struct DrillsHomeView: View {
     var body: some View {
         NavigationStack {
             List {
+                if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
+                    Section {
+                        Text("Sélectionnez une équipe active pour modifier les exercices.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Exercices") {
                     if filteredDrills.isEmpty {
                         Text(searchText.isEmpty ? "Aucun exercice" : "Aucun exercice pour cette recherche")
@@ -163,6 +171,23 @@ struct DrillsHomeView: View {
             }
             .navigationTitle("Exercices")
             .navigationBarTitleDisplayMode(.large)
+            .overlay(alignment: .bottomTrailing) {
+                if teamScopedWritable {
+                    Button {
+                        isSheetPresented = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+                            .background(Color.accentColor, in: Circle())
+                            .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
+                    .accessibilityLabel("Ajouter un exercice")
+                }
+            }
             .searchable(text: $searchText, prompt: "Rechercher un exercice")
             .refreshable {
                 await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
@@ -194,6 +219,19 @@ struct DrillsHomeView: View {
                 Text(viewModel.errorMessage ?? "")
             }
         }
+    }
+
+    private var writable: Bool {
+        authStore.me?.role.canEditSportData == true
+    }
+
+    private var requiresSelection: Bool {
+        guard let role = authStore.me?.role else { return false }
+        return (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty
+    }
+
+    private var teamScopedWritable: Bool {
+        writable && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
     }
 
     private var filteredDrills: [Drill] {

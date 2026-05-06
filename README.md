@@ -10,7 +10,7 @@ Base iOS native SwiftUI alignée avec `izifoot-web` et `api.izifoot.fr`.
 - Modules principaux:
   - `Mon club` (direction): club, équipes, coachs, création d’équipe.
   - `Planning`: entraînements + plateaux, création en bottom sheets, détails.
-  - `Exercices`: liste, détail, création en bottom sheet.
+  - `Exercices`: liste, détail, bouton d'ajout flottant, création en bottom sheet.
   - `Mon équipe`: liste, recherche, détail, création en bottom sheet.
   - `Stats`: agrégats clés (joueurs, entraînements, plateaux, exercices).
   - `Compte`: infos compte + logout.
@@ -71,4 +71,3 @@ Endpoints principaux repris depuis la web app:
 - Diagram editor tactique: ⏳ à implémenter (Canvas SwiftUI)
 - Matchday orchestration avancée (rotations, events): ⏳ à implémenter
 - IA drills/diagram endpoints: ⏳ à implémenter
-

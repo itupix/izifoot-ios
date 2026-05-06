@@ -52,22 +52,22 @@ Actions: persist drill changes.
 Restrictions: depends on backend validation.
 
 ## 5. Entry Points
-- UI: drills tab and navigation links to drill detail.
+- UI: drills tab, floating add button for writable staff contexts, and navigation links to drill detail.
 - API: drills list/detail/create/update/delete as implemented.
 
 ## 6. User Flows
 - Main flow: open drills tab -> search/list -> open detail.
-- Variants: create drill via sheet.
+- Variants: tap floating add button -> open create sheet -> submit drill.
 - Back navigation: detail back to list.
 - Interruptions: create/update request failures.
 - Errors: alerts for API failures.
-- Edge cases: empty drill list.
+- Edge cases: empty drill list; writable staff without active team selection cannot open creation.
 
 ## 7. Functional Behavior
-- UI behavior: list pagination and form sheet for creation.
+- UI behavior: list pagination, floating creation CTA, and form sheet for creation.
 - Actions: create drill and inspect details.
 - States: loading, loaded, creating, error.
-- Conditions: role capability (`canEditSportData`).
+- Conditions: role capability (`canEditSportData`) and active team selection when team scope is required.
 - Validations: required fields before create.
 - Blocking rules: disable save while request in progress.
 - Automations: none.
@@ -121,7 +121,7 @@ Constraints: backend scope.
 
 ## 17. UX Requirements
 - Feedback: clear creation/save results.
-- Empty states: no drills available.
+- Empty states: no drills available; scope hint shown when staff must select an active team before creating.
 - Loading: progressive pagination indicator.
 - Responsive: native list/detail responsiveness.
 
