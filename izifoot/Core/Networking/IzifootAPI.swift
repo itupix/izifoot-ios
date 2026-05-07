@@ -709,6 +709,103 @@ final class IzifootAPI {
         )
     }
 
+    func drillDiagrams(drillID: String) async throws -> [Diagram] {
+        try await client.get(
+            APIRoutes.Drills.diagrams(drillID),
+            responseType: [Diagram].self
+        )
+    }
+
+    func trainingDrillDiagrams(trainingDrillID: String) async throws -> [Diagram] {
+        try await client.get(
+            APIRoutes.TrainingDrills.diagrams(trainingDrillID),
+            responseType: [Diagram].self
+        )
+    }
+
+    func diagram(id: String) async throws -> Diagram {
+        try await client.get(
+            APIRoutes.Diagrams.byID(id),
+            responseType: Diagram.self
+        )
+    }
+
+    func createDrillDiagram(drillID: String, title: String = "Diagramme", data: DiagramData) async throws -> Diagram {
+        struct DiagramPayload: Encodable {
+            let title: String
+            let data: DiagramData
+        }
+
+        return try await client.post(
+            APIRoutes.Drills.diagrams(drillID),
+            body: DiagramPayload(title: title, data: data),
+            responseType: Diagram.self
+        )
+    }
+
+    func createTrainingDrillDiagram(trainingDrillID: String, title: String = "Diagramme", data: DiagramData) async throws -> Diagram {
+        struct DiagramPayload: Encodable {
+            let title: String
+            let data: DiagramData
+        }
+
+        return try await client.post(
+            APIRoutes.TrainingDrills.diagrams(trainingDrillID),
+            body: DiagramPayload(title: title, data: data),
+            responseType: Diagram.self
+        )
+    }
+
+    func updateDiagram(id: String, title: String? = nil, data: DiagramData? = nil) async throws -> Diagram {
+        struct DiagramPayload: Encodable {
+            let title: String?
+            let data: DiagramData?
+        }
+
+        return try await client.put(
+            APIRoutes.Diagrams.byID(id),
+            body: DiagramPayload(title: title, data: data),
+            responseType: Diagram.self
+        )
+    }
+
+    func generateAIDrillDiagram(drillID: String, objective: String?) async throws -> Diagram {
+        struct DiagramGenerationPayload: Encodable {
+            let objective: String?
+        }
+
+        let normalizedObjective = objective?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await client.post(
+            APIRoutes.Drills.generateAIDiagram(drillID),
+            body: DiagramGenerationPayload(
+                objective: normalizedObjective?.isEmpty == true ? nil : normalizedObjective
+            ),
+            responseType: Diagram.self
+        )
+    }
+
+    func generateAITrainingDrillDiagram(trainingDrillID: String, objective: String?) async throws -> Diagram {
+        struct DiagramGenerationPayload: Encodable {
+            let objective: String?
+        }
+
+        let normalizedObjective = objective?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await client.post(
+            APIRoutes.TrainingDrills.generateAIDiagram(trainingDrillID),
+            body: DiagramGenerationPayload(
+                objective: normalizedObjective?.isEmpty == true ? nil : normalizedObjective
+            ),
+            responseType: Diagram.self
+        )
+    }
+
+    func deleteDrill(id: String) async throws {
+        _ = try await client.delete(
+            APIRoutes.Drills.byID(id),
+            responseType: EmptyResponse.self
+        )
+    }
+
     func attendanceBySession(type: String, sessionID: String, limit: Int = 100, offset: Int = 0) async throws -> PaginatedResponse<AttendanceRow> {
         try await client.get(
             paginatedPath(APIRoutes.Attendance.bySession(type: type, sessionID: sessionID), limit: limit, offset: offset),

@@ -68,6 +68,6 @@ Endpoints principaux repris depuis la web app:
 - Effectif + détail: ✅ (socle)
 - Stats globales: ✅
 - Matchday public: ✅
-- Diagram editor tactique: ⏳ à implémenter (Canvas SwiftUI)
+- Diagram editor tactique: ✅
 - Matchday orchestration avancée (rotations, events): ⏳ à implémenter
-- IA drills/diagram endpoints: ⏳ à implémenter
+- IA drills/diagram endpoints: 🟡 génération de diagrammes livrée, génération d'exercices à finir

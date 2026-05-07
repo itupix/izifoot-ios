@@ -24,6 +24,15 @@ struct TrainingRoleEntry: Identifiable, Hashable {
     }
 }
 
+private struct DrillNavigationTarget: Identifiable, Hashable {
+    let drillID: String
+    let trainingDrillID: String?
+
+    var id: String {
+        "\(drillID)::\(trainingDrillID ?? "catalog")"
+    }
+}
+
 @MainActor
 final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var training: Training
@@ -280,7 +289,7 @@ struct TrainingDetailView: View {
     @State private var isAttendanceSheetPresented = false
     @State private var attendanceDraftPlayerIDs: Set<String> = []
     @State private var isExercisesSheetPresented = false
-    @State private var selectedDrillID: String?
+    @State private var selectedDrillTarget: DrillNavigationTarget?
     @State private var pendingDrillIDToAdd: String?
     @State private var roleEditor: RoleEditorState?
     @State private var pendingRoleSaveRequest: PendingRoleSaveRequest?
@@ -357,8 +366,11 @@ struct TrainingDetailView: View {
                             }
                         }
                     },
-                    onOpen: { drillID in
-                        selectedDrillID = drillID
+                    onOpen: { trainingDrill in
+                        selectedDrillTarget = DrillNavigationTarget(
+                            drillID: trainingDrill.drillId,
+                            trainingDrillID: trainingDrill.id
+                        )
                     }
                 )
 
@@ -544,8 +556,11 @@ struct TrainingDetailView: View {
             }
             self.pendingRoleSaveRequest = nil
         }
-        .navigationDestination(item: $selectedDrillID) { drillID in
-            DrillDetailView(drillID: drillID)
+        .navigationDestination(item: $selectedDrillTarget) { target in
+            DrillDetailView(
+                drillID: target.drillID,
+                trainingDrillID: target.trainingDrillID
+            )
         }
         .onChange(of: viewModel.errorMessage) { _, newValue in
             guard let newValue, !newValue.isEmpty else { return }
@@ -833,7 +848,7 @@ private struct ExercisesCard: View {
     let onManage: () -> Void
     let onMove: (IndexSet, Int) -> Void
     let onRemove: ([String]) -> Void
-    let onOpen: (String) -> Void
+    let onOpen: (TrainingDrill) -> Void
 
     var body: some View {
         DetailCard {
@@ -861,7 +876,7 @@ private struct ExercisesCard: View {
                     ForEach(trainingDrills) { item in
                         let drill = drillByID[item.drillId]
                         Button {
-                            onOpen(item.drillId)
+                            onOpen(item)
                         } label: {
                             HStack(spacing: 12) {
                                 Text(drill?.title ?? "Exercice")
