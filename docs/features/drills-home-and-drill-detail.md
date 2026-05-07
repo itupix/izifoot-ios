@@ -5,7 +5,7 @@
 - User problem solved: Coaches can manage exercise catalog on mobile.
 - Product value: Enables session preparation away from desktop.
 - Repository: `izifoot-ios`.
-- Status: existing (diagram editor parity partial).
+- Status: existing (diagram viewer/editor available on iOS).
 
 ## 2. Product Objective
 - Why it exists: Core training content should be manageable from mobile.
@@ -19,7 +19,7 @@ Included
 - `DrillDetailView.swift` detail read and edits where implemented.
 
 Excluded
-- Full visual diagram editing parity with web.
+- Remaining UX polish and advanced parity gaps versus web.
 
 ## 4. Actors
 - Admin
@@ -58,18 +58,19 @@ Restrictions: depends on backend validation.
 ## 6. User Flows
 - Main flow: open drills tab -> search/list -> open detail.
 - Variants: tap floating add button -> open create sheet -> submit drill.
+- Variants: swipe a drill row -> confirm deletion -> remove drill from catalog.
 - Back navigation: detail back to list.
 - Interruptions: create/update request failures.
-- Errors: alerts for API failures.
+- Errors: alerts for API failures; destructive actions require confirmation.
 - Edge cases: empty drill list; writable staff without active team selection cannot open creation.
 
 ## 7. Functional Behavior
-- UI behavior: list pagination, floating creation CTA, and form sheet for creation.
-- Actions: create drill and inspect details.
+- UI behavior: list pagination, floating creation CTA, form sheet for creation, and trailing swipe actions for deletion.
+- Actions: create drill, inspect details, and delete drills with confirmation.
 - States: loading, loaded, creating, error.
 - Conditions: role capability (`canEditSportData`) and active team selection when team scope is required.
 - Validations: required fields before create.
-- Blocking rules: disable save while request in progress.
+- Blocking rules: disable save while request in progress; prevent delete execution without explicit confirmation.
 - Automations: none.
 
 ## 8. Data Model
@@ -123,15 +124,16 @@ Constraints: backend scope.
 - Feedback: clear creation/save results.
 - Empty states: no drills available; scope hint shown when staff must select an active team before creating.
 - Loading: progressive pagination indicator.
+- Destructive actions: swipe delete must show an explicit confirmation before API call.
 - Responsive: native list/detail responsiveness.
 
 ## 18. Ambiguities & Gaps
 - Observed
-- Diagram editing parity is not complete in iOS.
+- Diagram editing is available, but still lighter than the web desktop ergonomics.
 - Inferred
-- Mobile tactical editor is planned but not finished.
+- Mobile tactical editor exists and follows the backend contract for catalog and training-specific diagrams.
 - Missing
-- Full drill-diagram creation workflow.
+- No known blocker on the core drill-diagram creation workflow.
 - Tech debt
 - Divergence risk between web and iOS drill capabilities.
 
@@ -142,7 +144,7 @@ Constraints: backend scope.
 - Security: keep scope checks server-side for every mutation.
 
 ## 20. Acceptance Criteria
-1. Coach/direction can list and create drills.
+1. Coach/direction can list, create, and delete drills.
 2. Drill detail loads correctly.
 3. Role-restricted users cannot access drill tab.
 4. API failures are handled without crashes.

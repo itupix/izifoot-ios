@@ -8,6 +8,7 @@ final class DrillsHomeViewModel: ObservableObject {
     @Published private(set) var tags: [String] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
+    @Published private(set) var deletingDrillID: String?
     @Published var errorMessage: String?
 
     private let pageSize = 50
@@ -103,6 +104,27 @@ final class DrillsHomeViewModel: ObservableObject {
         }
     }
 
+    func deleteDrill(id: String, cacheKey: String) async {
+        guard deletingDrillID == nil else { return }
+        deletingDrillID = id
+        defer { deletingDrillID = nil }
+
+        do {
+            try await api.deleteDrill(id: id)
+            let reloadLimit = max(nextOffset, pageSize)
+            let response = try await api.drills(limit: reloadLimit, offset: 0)
+            drills = response.items
+            categories = response.categories
+            tags = response.tags
+            nextOffset = response.pagination.offset + response.pagination.returned
+            canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            await persistCache(forKey: cacheKey)
+            errorMessage = nil
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+        }
+    }
+
     private func persistCache(forKey cacheKey: String) async {
         await PersistentDataCache.shared.write(
             DrillsHomeCachePayload(
@@ -123,6 +145,7 @@ struct DrillsHomeView: View {
     @StateObject private var viewModel = DrillsHomeViewModel()
     @State private var isSheetPresented = false
     @State private var searchText = ""
+    @State private var drillToDelete: Drill?
     private var dataCacheKey: String { "drills-home-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
@@ -151,6 +174,20 @@ struct DrillsHomeView: View {
                                 Text(drill.category)
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if teamScopedWritable {
+                                Button(role: .destructive) {
+                                    guard viewModel.deletingDrillID == nil else { return }
+                                    drillToDelete = drill
+                                } label: {
+                                    Label(
+                                        viewModel.deletingDrillID == drill.id ? "Suppression..." : "Supprimer",
+                                        systemImage: "trash"
+                                    )
+                                }
+                                .disabled(viewModel.deletingDrillID != nil)
                             }
                         }
                     }
@@ -209,6 +246,29 @@ struct DrillsHomeView: View {
                     isSheetPresented = false
                 }
                 .presentationDetents([.large])
+            }
+            .confirmationDialog(
+                "Supprimer cet exercice ?",
+                isPresented: Binding(
+                    get: { drillToDelete != nil },
+                    set: { if !$0 { drillToDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Supprimer l'exercice", role: .destructive) {
+                    guard let drill = drillToDelete else { return }
+                    Task {
+                        await viewModel.deleteDrill(id: drill.id, cacheKey: dataCacheKey)
+                        drillToDelete = nil
+                    }
+                }
+                Button("Annuler", role: .cancel) {
+                    drillToDelete = nil
+                }
+            } message: {
+                if let drill = drillToDelete {
+                    Text("L'exercice \"\(drill.title)\" sera supprimé définitivement.")
+                }
             }
             .alert("Erreur", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },
