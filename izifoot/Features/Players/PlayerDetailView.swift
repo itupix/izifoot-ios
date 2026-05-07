@@ -19,6 +19,7 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
     @Published private(set) var isLoading = false
     @Published private(set) var isInviting = false
+    @Published private(set) var isSavingInvitePrerequisites = false
     @Published private(set) var deletingParentID: String?
     @Published fileprivate var invitationStatus: PlayerInvitationStatusValue = .none
     @Published private(set) var inviteURL: URL?
@@ -67,6 +68,20 @@ final class PlayerDetailViewModel: ObservableObject {
         }
     }
 
+    func updateAdultInvitePrerequisites(id: String, lastName: String, email: String, phone: String) async -> Bool {
+        isSavingInvitePrerequisites = true
+        defer { isSavingInvitePrerequisites = false }
+
+        do {
+            player = try await api.updatePlayerInvitePrerequisites(id: id, lastName: lastName, email: email, phone: phone)
+            errorMessage = nil
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
+        }
+    }
+
     func deleteParent(playerID: String, parentID: String) async -> Bool {
         deletingParentID = parentID
         defer { deletingParentID = nil }
@@ -86,6 +101,7 @@ struct PlayerDetailView: View {
     let playerID: String
 
     @StateObject private var viewModel = PlayerDetailViewModel()
+    @State private var isAdultInvitePrerequisitesSheetPresented = false
     @State private var isParentInviteSheetPresented = false
     @State private var parentInviteEmail = ""
     @State private var parentInvitePhone = ""
@@ -99,9 +115,7 @@ struct PlayerDetailView: View {
                     if let firstName = player.firstName {
                         LabeledContent("Prénom", value: firstName)
                     }
-                    if let lastName = player.lastName {
-                        LabeledContent("Nom de famille", value: lastName)
-                    }
+                    LabeledContent("Nom de famille", value: displayValue(player.lastName))
                 }
 
                 Section("Sport") {
@@ -115,12 +129,8 @@ struct PlayerDetailView: View {
 
                 if !player.isChild {
                     Section("Contact") {
-                        if let email = player.email {
-                            LabeledContent("Email", value: email)
-                        }
-                        if let phone = player.phone {
-                            LabeledContent("Téléphone", value: phone)
-                        }
+                        LabeledContent("Email", value: displayValue(player.email))
+                        LabeledContent("Téléphone", value: displayValue(player.phone))
                     }
                 }
 
@@ -158,17 +168,25 @@ struct PlayerDetailView: View {
 
                 Section("Invitation compte") {
                     LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
+                    let blockingFields = adultInviteBlockingFields(player)
+                    if !player.isChild, !blockingFields.isEmpty {
+                        Text("Complétez \(formattedFieldList(blockingFields)) avant d’envoyer l’invitation.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     if viewModel.invitationStatus != .accepted || player.isChild {
-                        Button(viewModel.isInviting ? "Envoi…" : (viewModel.invitationStatus == .pending ? "Renvoyer l'invitation" : "Inviter")) {
+                        Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
                             if player.isChild {
                                 parentInviteEmail = ""
                                 parentInvitePhone = ""
                                 isParentInviteSheetPresented = true
+                            } else if !blockingFields.isEmpty {
+                                isAdultInvitePrerequisitesSheetPresented = true
                             } else {
                                 Task { await viewModel.invitePlayer(id: playerID) }
                             }
                         }
-                        .disabled(viewModel.isInviting)
+                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites)
                     }
                 }
             }
@@ -185,6 +203,21 @@ struct PlayerDetailView: View {
         .sheet(isPresented: $viewModel.isInviteSheetPresented) {
             if let url = viewModel.inviteURL {
                 InvitePlayerSheet(url: url)
+            }
+        }
+        .sheet(isPresented: $isAdultInvitePrerequisitesSheetPresented) {
+            if let player = viewModel.player {
+                CompleteAdultInviteInfoSheet(
+                    player: player,
+                    isSaving: viewModel.isSavingInvitePrerequisites
+                ) { payload in
+                    await viewModel.updateAdultInvitePrerequisites(
+                        id: playerID,
+                        lastName: payload.lastName,
+                        email: payload.email,
+                        phone: payload.phone
+                    )
+                }
             }
         }
         .sheet(isPresented: $isParentInviteSheetPresented) {
@@ -268,9 +301,162 @@ struct PlayerDetailView: View {
         }
     }
 
+    private func inviteButtonTitle(for player: Player) -> String {
+        if !player.isChild, !adultInviteBlockingFields(player).isEmpty {
+            return "Compléter avant d'inviter"
+        }
+        return viewModel.invitationStatus == .pending ? "Renvoyer l'invitation" : "Inviter"
+    }
+
+    private func adultInviteBlockingFields(_ player: Player) -> [String] {
+        guard !player.isChild else { return [] }
+
+        var fields: [String] = []
+        if !hasValue(player.lastName) {
+            fields.append("le nom")
+        }
+        if !hasValue(player.email) || !isValidEmail(player.email) {
+            fields.append("un e-mail valide")
+        }
+        if !hasValue(player.phone) {
+            fields.append("le téléphone")
+        }
+        return fields
+    }
+
+    private func formattedFieldList(_ fields: [String]) -> String {
+        switch fields.count {
+        case 0:
+            return ""
+        case 1:
+            return fields[0]
+        case 2:
+            return "\(fields[0]) et \(fields[1])"
+        default:
+            let prefix = fields.dropLast().joined(separator: ", ")
+            return "\(prefix) et \(fields.last ?? "")"
+        }
+    }
+
+    private func hasValue(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func isValidEmail(_ value: String?) -> Bool {
+        guard let value else { return false }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let pattern = #"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"#
+        return trimmed.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     private func displayValue(_ value: String?) -> String {
-        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "—" }
+        guard hasValue(value) else { return "—" }
+        guard let value else { return "—" }
         return value
+    }
+}
+
+private struct AdultInvitePrerequisitesPayload {
+    let lastName: String
+    let email: String
+    let phone: String
+}
+
+private struct CompleteAdultInviteInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var lastName: String
+    @State private var email: String
+    @State private var phone: String
+
+    let isSaving: Bool
+    let onSubmit: (AdultInvitePrerequisitesPayload) async -> Bool
+
+    init(
+        player: Player,
+        isSaving: Bool,
+        onSubmit: @escaping (AdultInvitePrerequisitesPayload) async -> Bool
+    ) {
+        _lastName = State(initialValue: player.lastName ?? "")
+        _email = State(initialValue: player.email ?? "")
+        _phone = State(initialValue: player.phone ?? "")
+        self.isSaving = isSaving
+        self.onSubmit = onSubmit
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Informations requises") {
+                    TextField("Nom", text: $lastName)
+                    TextField("Email", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .keyboardType(.emailAddress)
+                    TextField("Téléphone", text: $phone)
+                        .keyboardType(.phonePad)
+                }
+
+                Section {
+                    Text("Nom, e-mail et téléphone sont requis pour inviter un joueur adulte.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !trimmedEmail.isEmpty, !isValidEmail(trimmedEmail) {
+                        Text("Merci de saisir une adresse e-mail valide.")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Compléter la fiche")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Annuler") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSaving ? "Enregistrement…" : "Enregistrer") {
+                        Task {
+                            let saved = await onSubmit(
+                                AdultInvitePrerequisitesPayload(
+                                    lastName: trimmedLastName,
+                                    email: trimmedEmail,
+                                    phone: trimmedPhone
+                                )
+                            )
+                            if saved {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(!canSubmit || isSaving)
+                }
+            }
+        }
+    }
+
+    private var trimmedLastName: String {
+        lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedPhone: String {
+        phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSubmit: Bool {
+        !trimmedLastName.isEmpty && !trimmedEmail.isEmpty && !trimmedPhone.isEmpty && isValidEmail(trimmedEmail)
+    }
+
+    private func isValidEmail(_ value: String) -> Bool {
+        let pattern = #"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"#
+        return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
 

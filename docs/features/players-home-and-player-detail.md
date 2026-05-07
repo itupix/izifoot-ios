@@ -57,7 +57,7 @@ Restrictions: dependent on multi-endpoint calls.
 - API: players endpoints, invitation status/invite, parent delete, aggregate endpoints.
 
 ## 6. User Flows
-- Main flow: open players list -> create/select player -> edit detail.
+- Main flow: open players list -> quick-create player with first name only -> open detail -> complete invite prerequisites if needed -> invite.
 - Variants: send invite or remove parent link.
 - Back navigation: detail back to list.
 - Interruptions: invite action errors.
@@ -69,7 +69,7 @@ Restrictions: dependent on multi-endpoint calls.
 - Actions: CRUD plus invite operations.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
-- Validations: required fields and contact formatting.
+- Validations: quick-add only requires first name; adult invite requires last name, email, and phone and surfaces a completion sheet before invitation.
 - Blocking rules: disable actions during persistence.
 - Automations: invite status refresh after invitation operations.
 
@@ -83,6 +83,7 @@ Constraints: backend role/scope and field constraints.
 ## 9. Business Rules
 - Invite status endpoint queried per-player detail.
 - Parent deletion uses dedicated endpoint and refreshes player data.
+- Adult invite flow stays separate from quick-create and requires explicit profile completion on detail.
 - Player list is paginated.
 
 ## 10. State Machine
@@ -144,15 +145,15 @@ Constraints: backend role/scope and field constraints.
 - Security: keep invite actions rate-limited server-side.
 
 ## 20. Acceptance Criteria
-1. Admin/coach can CRUD players on iOS.
+1. Admin/coach can quick-create a player with first name only on iOS.
 2. Invite and parent unlink actions function correctly.
 3. Unauthorized roles cannot access players tab.
 4. Failure states are visible without app crash.
 
 ## 21. Test Scenarios
-- Happy path: create player and send invite.
+- Happy path: quick-create player, complete invite prerequisites, then send invite.
 - Permissions: parent has no player management access.
-- Errors: invitation status endpoint failure.
+- Errors: invitation status endpoint failure or adult invite blocked until required profile fields are completed.
 - Edge cases: player payload using legacy keys only.
 
 ## 22. Technical References

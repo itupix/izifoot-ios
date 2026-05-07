@@ -298,18 +298,18 @@ final class IzifootAPI {
 
     func createPlayer(
         firstName: String,
-        lastName: String,
-        email: String,
-        phone: String,
-        primaryPosition: String,
+        lastName: String? = nil,
+        email: String? = nil,
+        phone: String? = nil,
+        primaryPosition: String? = nil,
         secondaryPosition: String?
     ) async throws -> Player {
         struct CreatePlayerPayload: Encodable {
             let prenom: String
-            let nom: String
-            let email: String
-            let phone: String
-            let primary_position: String
+            let nom: String?
+            let email: String?
+            let phone: String?
+            let primary_position: String?
             let secondary_position: String?
         }
 
@@ -323,6 +323,25 @@ final class IzifootAPI {
                 primary_position: primaryPosition,
                 secondary_position: secondaryPosition
             ),
+            responseType: Player.self
+        )
+    }
+
+    func updatePlayerInvitePrerequisites(
+        id: String,
+        lastName: String,
+        email: String,
+        phone: String
+    ) async throws -> Player {
+        struct UpdatePlayerPayload: Encodable {
+            let lastName: String
+            let email: String
+            let phone: String
+        }
+
+        return try await client.put(
+            APIRoutes.Players.byID(id),
+            body: UpdatePlayerPayload(lastName: lastName, email: email, phone: phone),
             responseType: Player.self
         )
     }

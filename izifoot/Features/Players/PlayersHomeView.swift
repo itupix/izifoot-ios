@@ -119,10 +119,8 @@ final class PlayersHomeViewModel: ObservableObject {
 
     func create(
         firstName: String,
-        lastName: String,
-        email: String,
-        phone: String,
-        primaryPosition: String,
+        lastName: String?,
+        primaryPosition: String?,
         secondaryPosition: String?,
         cacheKey: String
     ) async {
@@ -130,8 +128,6 @@ final class PlayersHomeViewModel: ObservableObject {
             let created = try await api.createPlayer(
                 firstName: firstName,
                 lastName: lastName,
-                email: email,
-                phone: phone,
                 primaryPosition: primaryPosition,
                 secondaryPosition: secondaryPosition
             )
@@ -501,8 +497,6 @@ struct PlayersHomeView: View {
                     await viewModel.create(
                         firstName: payload.firstName,
                         lastName: payload.lastName,
-                        email: payload.email,
-                        phone: payload.phone,
                         primaryPosition: payload.primaryPosition,
                         secondaryPosition: payload.secondaryPosition,
                         cacheKey: dataCacheKey
@@ -1428,10 +1422,8 @@ private struct TeamStatCard: View {
 
 struct CreatePlayerPayload {
     let firstName: String
-    let lastName: String
-    let email: String
-    let phone: String
-    let primaryPosition: String
+    let lastName: String?
+    let primaryPosition: String?
     let secondaryPosition: String?
 }
 
@@ -1440,8 +1432,6 @@ struct CreatePlayerSheet: View {
 
     @State private var firstName = ""
     @State private var lastName = ""
-    @State private var email = ""
-    @State private var phone = ""
     @State private var primaryPosition = ""
     @State private var secondaryPosition = ""
 
@@ -1450,16 +1440,18 @@ struct CreatePlayerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Prénom", text: $firstName)
-                TextField("Nom", text: $lastName)
-                TextField("Email", text: $email)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                    .autocorrectionDisabled(true)
-                TextField("Téléphone", text: $phone)
-                    .keyboardType(.phonePad)
-                TextField("Poste principal", text: $primaryPosition)
-                TextField("Poste secondaire", text: $secondaryPosition)
+                Section("Ajout rapide") {
+                    TextField("Prénom", text: $firstName)
+                    TextField("Nom", text: $lastName)
+                    TextField("Poste principal", text: $primaryPosition)
+                    TextField("Poste secondaire", text: $secondaryPosition)
+                }
+
+                Section {
+                    Text("Seul le prénom est requis. Vous pourrez compléter le nom et les coordonnées plus tard depuis la fiche joueur.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Nouveau joueur")
             .toolbar {
@@ -1471,19 +1463,22 @@ struct CreatePlayerSheet: View {
                         Task {
                             await onSubmit(
                                 CreatePlayerPayload(
-                                    firstName: firstName,
-                                    lastName: lastName,
-                                    email: email,
-                                    phone: phone,
-                                    primaryPosition: primaryPosition,
-                                    secondaryPosition: secondaryPosition.isEmpty ? nil : secondaryPosition
+                                    firstName: firstName.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    lastName: normalizedField(lastName),
+                                    primaryPosition: normalizedField(primaryPosition),
+                                    secondaryPosition: normalizedField(secondaryPosition)
                                 )
                             )
                         }
                     }
-                    .disabled(firstName.isEmpty || lastName.isEmpty || primaryPosition.isEmpty)
+                    .disabled(firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
+    }
+
+    private func normalizedField(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
