@@ -262,7 +262,7 @@ struct PlayerDetailView: View {
                 ProgressView("Chargement")
             }
         }
-        .navigationTitle("Joueur")
+        .navigationTitle(playerNavigationTitle)
         .toolbar {
             if let player = viewModel.player {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -419,6 +419,18 @@ struct PlayerDetailView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.uppercased() != defaultPlayerPrimaryPosition else { return "" }
         return trimmed
+    }
+
+    private var playerNavigationTitle: String {
+        guard let player = viewModel.player else { return "Joueur" }
+        let firstName = player.firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let lastName = player.lastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fullName = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullName.isEmpty {
+            return fullName
+        }
+        let legacyName = player.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return legacyName.isEmpty ? "Joueur" : legacyName
     }
 
     private func invitationStatusLabel(_ status: PlayerInvitationStatusValue) -> String {

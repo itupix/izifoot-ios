@@ -65,7 +65,7 @@ Restrictions: dependent on multi-endpoint calls.
 - Edge cases: legacy payload aliases.
 
 ## 7. Functional Behavior
-- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support and explicit parent-account invitation entry points on child profiles.
+- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
 - Actions: CRUD plus invite operations.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
