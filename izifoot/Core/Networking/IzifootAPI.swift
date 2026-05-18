@@ -334,6 +334,7 @@ final class IzifootAPI {
         email: String,
         phone: String,
         licence: String,
+        dateOfBirth: String,
         primaryPosition: String,
         secondaryPosition: String,
         isChild: Bool
@@ -344,6 +345,7 @@ final class IzifootAPI {
             let email: String
             let phone: String
             let licence: String
+            let dateOfBirth: String
             let primary_position: String
             let secondary_position: String
             let isChild: Bool
@@ -357,6 +359,7 @@ final class IzifootAPI {
                 email: email,
                 phone: phone,
                 licence: licence,
+                dateOfBirth: dateOfBirth,
                 primary_position: primaryPosition,
                 secondary_position: secondaryPosition,
                 isChild: isChild

@@ -36,6 +36,7 @@ final class PlayersHomeViewModel: ObservableObject {
         let primaryPosition: String?
         let secondaryPosition: String?
         let licence: String?
+        let dateOfBirth: String?
         let email: String?
         let phone: String?
         let isChild: Bool
@@ -66,6 +67,7 @@ final class PlayersHomeViewModel: ObservableObject {
                     primaryPosition: cached.primaryPosition,
                     secondaryPosition: cached.secondaryPosition,
                     licence: cached.licence,
+                    dateOfBirth: cached.dateOfBirth,
                     email: cached.email,
                     phone: cached.phone,
                     isChild: cached.isChild,
@@ -153,6 +155,7 @@ final class PlayersHomeViewModel: ObservableObject {
                         primaryPosition: player.primaryPosition,
                         secondaryPosition: player.secondaryPosition,
                         licence: player.licence,
+                        dateOfBirth: player.dateOfBirth,
                         email: player.email,
                         phone: player.phone,
                         isChild: player.isChild,

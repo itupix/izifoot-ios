@@ -1,6 +1,15 @@
 import Foundation
 
 enum DateFormatters {
+    static let isoDateOnly: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     static let iso8601WithFractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -46,6 +55,7 @@ enum DateFormatters {
             ?? iso8601NoFractional.date(from: value)
             ?? iso8601WithFractionalAndSpace.date(from: value)
             ?? iso8601NoFractionalAndSpace.date(from: value)
+            ?? isoDateOnly.date(from: value)
     }
 
     static func display(_ value: String) -> String {
@@ -60,5 +70,9 @@ enum DateFormatters {
 
     static func isoString(from date: Date) -> String {
         iso8601WithFractional.string(from: date)
+    }
+
+    static func isoDateOnlyString(from date: Date) -> String {
+        isoDateOnly.string(from: date)
     }
 }

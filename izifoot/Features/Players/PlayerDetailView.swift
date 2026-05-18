@@ -82,6 +82,7 @@ final class PlayerDetailViewModel: ObservableObject {
         email: String,
         phone: String,
         licence: String,
+        dateOfBirth: String,
         primaryPosition: String,
         secondaryPosition: String,
         isChild: Bool
@@ -97,6 +98,7 @@ final class PlayerDetailViewModel: ObservableObject {
                 email: email,
                 phone: phone,
                 licence: licence,
+                dateOfBirth: dateOfBirth,
                 primaryPosition: primaryPosition,
                 secondaryPosition: secondaryPosition,
                 isChild: isChild
@@ -157,6 +159,7 @@ struct PlayerDetailView: View {
     @State private var editEmail = ""
     @State private var editPhone = ""
     @State private var editLicence = ""
+    @State private var editDateOfBirth = ""
     @State private var editPrimaryPosition = ""
     @State private var editSecondaryPosition = ""
     @State private var editIsChild = false
@@ -169,6 +172,7 @@ struct PlayerDetailView: View {
                         LabeledContent("Prénom", value: firstName)
                     }
                     LabeledContent("Nom", value: displayValue(player.lastName))
+                    LabeledContent("Date de naissance", value: displayDate(player.dateOfBirth))
                 }
 
                 Section("Sport") {
@@ -279,6 +283,7 @@ struct PlayerDetailView: View {
                 email: $editEmail,
                 phone: $editPhone,
                 licence: $editLicence,
+                dateOfBirth: $editDateOfBirth,
                 primaryPosition: $editPrimaryPosition,
                 secondaryPosition: $editSecondaryPosition,
                 isChild: $editIsChild,
@@ -291,6 +296,7 @@ struct PlayerDetailView: View {
                     email: payload.email,
                     phone: payload.phone,
                     licence: payload.licence,
+                    dateOfBirth: payload.dateOfBirth,
                     primaryPosition: payload.primaryPosition.isEmpty ? defaultPlayerPrimaryPosition : payload.primaryPosition,
                     secondaryPosition: payload.secondaryPosition,
                     isChild: payload.isChild
@@ -401,6 +407,7 @@ struct PlayerDetailView: View {
         editEmail = player.email ?? ""
         editPhone = player.phone ?? ""
         editLicence = player.licence ?? ""
+        editDateOfBirth = player.dateOfBirth ?? ""
         editPrimaryPosition = editablePrimaryPosition(player.primaryPosition)
         editSecondaryPosition = player.secondaryPosition ?? ""
         editIsChild = player.isChild
@@ -489,6 +496,11 @@ struct PlayerDetailView: View {
         guard let value else { return "—" }
         return value
     }
+
+    private func displayDate(_ value: String?) -> String {
+        guard let value, hasValue(value) else { return "—" }
+        return DateFormatters.displayDateOnly(value)
+    }
 }
 
 private struct EditPlayerPayload {
@@ -497,6 +509,7 @@ private struct EditPlayerPayload {
     let email: String
     let phone: String
     let licence: String
+    let dateOfBirth: String
     let primaryPosition: String
     let secondaryPosition: String
     let isChild: Bool
@@ -510,12 +523,49 @@ private struct EditPlayerSheet: View {
     @Binding var email: String
     @Binding var phone: String
     @Binding var licence: String
+    @Binding var dateOfBirth: String
     @Binding var primaryPosition: String
     @Binding var secondaryPosition: String
     @Binding var isChild: Bool
 
     let isSaving: Bool
     let onSubmit: (EditPlayerPayload) async -> Bool
+
+    @State private var hasDateOfBirth: Bool
+    @State private var selectedDateOfBirth: Date
+    @State private var didSetDateOfBirth = false
+
+    init(
+        firstName: Binding<String>,
+        lastName: Binding<String>,
+        email: Binding<String>,
+        phone: Binding<String>,
+        licence: Binding<String>,
+        dateOfBirth: Binding<String>,
+        primaryPosition: Binding<String>,
+        secondaryPosition: Binding<String>,
+        isChild: Binding<Bool>,
+        isSaving: Bool,
+        onSubmit: @escaping (EditPlayerPayload) async -> Bool
+    ) {
+        _firstName = firstName
+        _lastName = lastName
+        _email = email
+        _phone = phone
+        _licence = licence
+        _dateOfBirth = dateOfBirth
+        _primaryPosition = primaryPosition
+        _secondaryPosition = secondaryPosition
+        _isChild = isChild
+        self.isSaving = isSaving
+        self.onSubmit = onSubmit
+
+        let trimmedDateOfBirth = dateOfBirth.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasExistingDate = !trimmedDateOfBirth.isEmpty
+        _hasDateOfBirth = State(initialValue: hasExistingDate)
+        _selectedDateOfBirth = State(initialValue: DateFormatters.parseISODate(trimmedDateOfBirth) ?? Date())
+        _didSetDateOfBirth = State(initialValue: hasExistingDate)
+    }
 
     var body: some View {
         NavigationStack {
@@ -525,6 +575,30 @@ private struct EditPlayerSheet: View {
                         .textInputAutocapitalization(.words)
                     TextField("Nom", text: $lastName)
                         .textInputAutocapitalization(.words)
+                    if hasDateOfBirth {
+                        DatePicker(
+                            "Date de naissance",
+                            selection: Binding(
+                                get: { selectedDateOfBirth },
+                                set: { newValue in
+                                    selectedDateOfBirth = newValue
+                                    didSetDateOfBirth = true
+                                }
+                            ),
+                            in: ...Date(),
+                            displayedComponents: .date
+                        )
+                        Button("Effacer la date de naissance", role: .destructive) {
+                            hasDateOfBirth = false
+                            didSetDateOfBirth = false
+                        }
+                    } else {
+                        Button("Ajouter une date de naissance") {
+                            hasDateOfBirth = true
+                            selectedDateOfBirth = Date()
+                            didSetDateOfBirth = false
+                        }
+                    }
                     Toggle("Enfant", isOn: $isChild)
                 }
 
@@ -582,6 +656,7 @@ private struct EditPlayerSheet: View {
                                     email: isChild ? "" : trimmedEmail,
                                     phone: isChild ? "" : trimmedPhone,
                                     licence: trimmedLicence,
+                                    dateOfBirth: normalizedDateOfBirth,
                                     primaryPosition: trimmedPrimaryPosition,
                                     secondaryPosition: trimmedSecondaryPosition,
                                     isChild: isChild
@@ -616,6 +691,11 @@ private struct EditPlayerSheet: View {
 
     private var trimmedLicence: String {
         licence.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedDateOfBirth: String {
+        guard hasDateOfBirth, didSetDateOfBirth else { return "" }
+        return DateFormatters.isoDateOnlyString(from: selectedDateOfBirth)
     }
 
     private var trimmedPrimaryPosition: String {

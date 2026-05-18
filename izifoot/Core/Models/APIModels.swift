@@ -364,6 +364,7 @@ struct Player: Decodable, Identifiable {
     let primaryPosition: String?
     let secondaryPosition: String?
     let licence: String?
+    let dateOfBirth: String?
     let email: String?
     let phone: String?
     let isChild: Bool
@@ -383,6 +384,8 @@ struct Player: Decodable, Identifiable {
         case secondaryPosition = "secondary_position"
         case licence
         case license
+        case dateOfBirth
+        case date_of_birth
         case email
         case phone
         case isChild
@@ -406,6 +409,8 @@ struct Player: Decodable, Identifiable {
         secondaryPosition = try? container.decodeIfPresent(String.self, forKey: .secondaryPosition)
         licence = try? container.decodeIfPresent(String.self, forKey: .licence)
             ?? container.decodeIfPresent(String.self, forKey: .license)
+        dateOfBirth = try? container.decodeIfPresent(String.self, forKey: .dateOfBirth)
+            ?? container.decodeIfPresent(String.self, forKey: .date_of_birth)
         email = try? container.decodeIfPresent(String.self, forKey: .email)
         phone = try? container.decodeIfPresent(String.self, forKey: .phone)
         isChild = (try? container.decodeIfPresent(Bool.self, forKey: .isChild))
@@ -424,6 +429,7 @@ struct Player: Decodable, Identifiable {
         primaryPosition: String? = nil,
         secondaryPosition: String? = nil,
         licence: String? = nil,
+        dateOfBirth: String? = nil,
         email: String? = nil,
         phone: String? = nil,
         isChild: Bool = false,
@@ -437,6 +443,7 @@ struct Player: Decodable, Identifiable {
         self.primaryPosition = primaryPosition
         self.secondaryPosition = secondaryPosition
         self.licence = licence
+        self.dateOfBirth = dateOfBirth
         self.email = email
         self.phone = phone
         self.isChild = isChild
