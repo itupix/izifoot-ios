@@ -187,8 +187,14 @@ struct PlayerDetailView: View {
                 if player.isChild {
                     Section("Parents") {
                         if player.parentContacts.isEmpty {
-                            Text("Aucun parent lié")
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Aucun parent lié")
+                                    .foregroundStyle(.secondary)
+                                Button("Ajouter un parent") {
+                                    openParentInviteSheet()
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
                         } else {
                             ForEach(Array(player.parentContacts.enumerated()), id: \.element.id) { index, parent in
                                 VStack(alignment: .leading, spacing: 8) {
@@ -212,6 +218,10 @@ struct PlayerDetailView: View {
                                 }
                                 .padding(.vertical, 4)
                             }
+                            Button("Ajouter un autre parent") {
+                                openParentInviteSheet()
+                            }
+                            .buttonStyle(.bordered)
                         }
                     }
                 }
@@ -227,9 +237,7 @@ struct PlayerDetailView: View {
                     if viewModel.invitationStatus != .accepted || player.isChild {
                         Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
                             if player.isChild {
-                                parentInviteEmail = ""
-                                parentInvitePhone = ""
-                                isParentInviteSheetPresented = true
+                                openParentInviteSheet()
                             } else if !blockingFields.isEmpty {
                                 isAdultInvitePrerequisitesSheetPresented = true
                             } else {
@@ -407,9 +415,21 @@ struct PlayerDetailView: View {
         }
     }
 
+    private func openParentInviteSheet() {
+        parentInviteEmail = ""
+        parentInvitePhone = ""
+        isParentInviteSheetPresented = true
+    }
+
     private func inviteButtonTitle(for player: Player) -> String {
         if !player.isChild, !adultInviteBlockingFields(player).isEmpty {
             return "Compléter avant d'inviter"
+        }
+        if player.isChild {
+            if viewModel.invitationStatus == .pending {
+                return "Renvoyer l'invitation"
+            }
+            return player.parentContacts.isEmpty ? "Inviter un parent" : "Inviter un autre parent"
         }
         return viewModel.invitationStatus == .pending ? "Renvoyer l'invitation" : "Inviter"
     }

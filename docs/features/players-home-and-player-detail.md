@@ -57,7 +57,7 @@ Restrictions: dependent on multi-endpoint calls.
 - API: players endpoints, invitation status/invite, parent delete, aggregate endpoints.
 
 ## 6. User Flows
-- Main flow: open players list -> quick-create player with first name only -> open detail -> edit identity/contact/sport fields if needed -> complete invite prerequisites if needed -> invite.
+- Main flow: open players list -> quick-create player with first name only -> open detail -> edit identity/contact/sport fields if needed -> add/invite a parent account from the `Parents` or `Invitation compte` section when the player is a child -> complete invite prerequisites if needed -> invite.
 - Variants: send invite or remove parent link.
 - Back navigation: detail back to list.
 - Interruptions: invite action errors.
@@ -65,7 +65,7 @@ Restrictions: dependent on multi-endpoint calls.
 - Edge cases: legacy payload aliases.
 
 ## 7. Functional Behavior
-- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail.
+- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail and explicit parent-account invitation entry points on child profiles.
 - Actions: CRUD plus invite operations.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
