@@ -1,5 +1,7 @@
 import Combine
+import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
 extension Notification.Name {
     static let teamMessagesDidRefresh = Notification.Name("teamMessagesDidRefresh")
@@ -15,6 +17,7 @@ private extension MessageConversation {
         MessageConversation(
             id: id,
             type: type,
+            playerId: playerId,
             title: title,
             subtitle: subtitle,
             lastMessagePreview: lastMessagePreview,
@@ -98,12 +101,16 @@ final class MessagesListViewModel: ObservableObject {
         let conversations: [MessageConversation]
     }
 
-    func markConversationUnavailable(id: String, cacheKey: String) {
+    func updateConversationInvitationStatus(
+        id: String,
+        invitationStatus: ConversationInvitationStatus,
+        cacheKey: String
+    ) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         let conversation = conversations[index]
-        guard conversation.type == "COACH", conversation.invitationStatus != .none else { return }
+        guard conversation.type == "COACH", conversation.invitationStatus != invitationStatus else { return }
 
-        conversations[index] = conversation.withInvitationStatus(.none)
+        conversations[index] = conversation.withInvitationStatus(invitationStatus)
         let updatedConversations = conversations
         Task {
             await PersistentDataCache.shared.write(
@@ -111,6 +118,14 @@ final class MessagesListViewModel: ObservableObject {
                 forKey: cacheKey
             )
         }
+    }
+
+    func markConversationUnavailable(id: String, cacheKey: String) {
+        updateConversationInvitationStatus(id: id, invitationStatus: .none, cacheKey: cacheKey)
+    }
+
+    func markConversationPending(id: String, cacheKey: String) {
+        updateConversationInvitationStatus(id: id, invitationStatus: .pending, cacheKey: cacheKey)
     }
 
     func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
@@ -137,6 +152,7 @@ final class ConversationThreadViewModel: ObservableObject {
     @Published private(set) var messages: [ConversationMessage] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isSending = false
+    @Published private(set) var isGeneratingInvite = false
     @Published private(set) var isConversationUnavailable = false
     @Published var draft = ""
     @Published var errorMessage: String?
@@ -186,6 +202,35 @@ final class ConversationThreadViewModel: ObservableObject {
         }
     }
 
+    func createInviteForConversation() async -> URL? {
+        guard conversation.type == "COACH",
+              let playerId = conversation.playerId,
+              !playerId.isEmpty else {
+            errorMessage = "Invitation indisponible pour cette conversation."
+            return nil
+        }
+
+        isGeneratingInvite = true
+        defer { isGeneratingInvite = false }
+
+        do {
+            let response = try await api.invitePlayer(id: playerId)
+            guard let inviteUrl = response.inviteUrl,
+                  !inviteUrl.isEmpty,
+                  let url = URL(string: inviteUrl) else {
+                errorMessage = "Lien d'invitation indisponible."
+                return nil
+            }
+
+            errorMessage = nil
+            await load()
+            return url
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return nil
+        }
+    }
+
     private func handleThreadError(_ error: Error) {
         if let apiError = error as? APIError,
            case let APIError.server(status, _) = apiError,
@@ -205,7 +250,7 @@ struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = MessagesListViewModel()
     @StateObject private var unreadStore = ConversationUnreadStore()
-    private var dataCacheKey: String { "messages-home-v2-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String { "messages-home-v3-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
         NavigationStack {
@@ -235,6 +280,13 @@ struct MessagesView: View {
                                     unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
                                 } onConversationUnavailable: { unavailableConversationID in
                                     viewModel.markConversationUnavailable(id: unavailableConversationID, cacheKey: dataCacheKey)
+                                    publishUnreadCount()
+                                } onInvitationStatusChanged: { conversationID, invitationStatus in
+                                    if invitationStatus == .pending {
+                                        viewModel.markConversationPending(id: conversationID, cacheKey: dataCacheKey)
+                                    } else if invitationStatus == .none {
+                                        viewModel.markConversationUnavailable(id: conversationID, cacheKey: dataCacheKey)
+                                    }
                                     publishUnreadCount()
                                 }
                             } label: {
@@ -381,17 +433,22 @@ private struct ConversationThreadView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel: ConversationThreadViewModel
     @FocusState private var isComposerFocused: Bool
+    @State private var invitePreviewURL: URL?
+    @State private var shareURL: URL?
     let onOpened: (String?) -> Void
     let onConversationUnavailable: (String) -> Void
+    let onInvitationStatusChanged: (String, ConversationInvitationStatus) -> Void
 
     init(
         conversation: MessageConversation,
         onOpened: @escaping (String?) -> Void = { _ in },
-        onConversationUnavailable: @escaping (String) -> Void = { _ in }
+        onConversationUnavailable: @escaping (String) -> Void = { _ in },
+        onInvitationStatusChanged: @escaping (String, ConversationInvitationStatus) -> Void = { _, _ in }
     ) {
         _viewModel = StateObject(wrappedValue: ConversationThreadViewModel(conversation: conversation))
         self.onOpened = onOpened
         self.onConversationUnavailable = onConversationUnavailable
+        self.onInvitationStatusChanged = onInvitationStatusChanged
     }
 
     var body: some View {
@@ -431,12 +488,13 @@ private struct ConversationThreadView: View {
             Divider()
 
             if viewModel.isConversationUnavailable {
-                Text("Messagerie directe non disponible")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(.ultraThinMaterial)
+                ConversationInviteUnavailableCard(
+                    isLoading: viewModel.isGeneratingInvite,
+                    errorMessage: viewModel.errorMessage,
+                    onShowQRCode: handleShowQRCode,
+                    onShareLink: handleShareInviteLink
+                )
+                .background(.ultraThinMaterial)
             } else {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Message", text: $viewModel.draft, axis: .vertical)
@@ -471,6 +529,22 @@ private struct ConversationThreadView: View {
         .refreshable {
             await viewModel.load()
         }
+        .sheet(isPresented: Binding(
+            get: { invitePreviewURL != nil },
+            set: { if !$0 { invitePreviewURL = nil } }
+        )) {
+            if let url = invitePreviewURL {
+                ConversationInviteSheet(url: url)
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { shareURL != nil },
+            set: { if !$0 { shareURL = nil } }
+        )) {
+            if let url = shareURL {
+                ActivityShareSheet(items: [url])
+            }
+        }
         .onChange(of: viewModel.isConversationUnavailable) { _, isUnavailable in
             if isUnavailable {
                 isComposerFocused = false
@@ -494,6 +568,139 @@ private struct ConversationThreadView: View {
         }
         return true
     }
+
+    private func handleShowQRCode() {
+        Task {
+            guard let url = await viewModel.createInviteForConversation() else { return }
+            onInvitationStatusChanged(viewModel.conversation.id, .pending)
+            invitePreviewURL = url
+        }
+    }
+
+    private func handleShareInviteLink() {
+        Task {
+            guard let url = await viewModel.createInviteForConversation() else { return }
+            onInvitationStatusChanged(viewModel.conversation.id, .pending)
+            shareURL = url
+        }
+    }
+}
+
+private struct ConversationInviteUnavailableCard: View {
+    let isLoading: Bool
+    let errorMessage: String?
+    let onShowQRCode: () -> Void
+    let onShareLink: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Messagerie directe non disponible", systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(.footnote.weight(.semibold))
+
+            Text("Invitez cette personne sur izifoot pour débloquer la conversation, puis partagez le QR code ou le lien d'accès.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button {
+                    onShowQRCode()
+                } label: {
+                    Label(isLoading ? "Préparation…" : "Afficher le QR code", systemImage: "qrcode")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isLoading)
+
+                Button {
+                    onShareLink()
+                } label: {
+                    Label("Envoyer le lien", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isLoading)
+            }
+
+            if let errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+    }
+}
+
+private struct ConversationInviteSheet: View {
+    let url: URL
+    private let context = CIContext()
+    private let filter = CIFilter.qrCodeGenerator()
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Partagez ce QR code ou ce lien pour finaliser le compte.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    if let image = qrImage {
+                        Image(uiImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 280)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color(.systemBackground))
+                                    .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
+                            )
+                    }
+
+                    Text(url.absoluteString)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+
+                    ShareLink(item: url) {
+                        Label("Partager le lien", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            }
+            .navigationTitle("Invitation")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var qrImage: UIImage? {
+        filter.message = Data(url.absoluteString.utf8)
+        guard let output = filter.outputImage else { return nil }
+        let transformed = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 private struct MessageBubbleRow: View {

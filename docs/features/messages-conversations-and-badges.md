@@ -74,7 +74,7 @@ Restrictions: depends on message read state and API.
 - Direct coach conversations remain visible in the list for `invitationStatus: NONE`, `PENDING`, and `ACCEPTED`.
 - `invitationStatus: NONE` renders the row as disabled and non tappable, with an explicit invitation-required hint.
 - Direct coach conversations returned with `invitationStatus: PENDING` show a lightweight `Invitation en attente` hint in the list.
-- A previously reachable direct coach thread that now returns `403` is rendered as unavailable with the composer hidden, and the list row is rewritten locally as disabled on return.
+- A previously reachable direct coach thread that now returns `403` is rendered as unavailable with the composer hidden and an in-thread invitation CTA offering QR code and link sharing.
 - Automations: badge updates via notification center.
 
 ## 8. Data Model
@@ -83,11 +83,13 @@ Source: messaging APIs.
 Purpose: thread rendering and badge display.
 Format: codable structs.
 - `MessageConversation.invitationStatus` is optional and currently supports `NONE`, `PENDING`, and `ACCEPTED` for coach direct threads.
+- `MessageConversation.playerId` is exposed for coach direct threads so the client can trigger invitation recovery actions from the thread UI.
 Constraints: role/team scoped.
 
 ## 9. Business Rules
 - Conversation list may be filtered by active team context.
 - Coach conversations with invitation status `NONE` are expected in `/messages/conversations`, but must render disabled.
+- If a stale coach thread still opens and returns `403`, the thread uses `playerId` plus the existing player invite endpoint to recover the flow.
 - Read/sent actions should influence unread badge state.
 - Conversation id contract from backend must stay stable.
 
@@ -157,13 +159,13 @@ Constraints: role/team scoped.
 3. User can send messages in allowed threads.
 4. Pending coach conversations display `Invitation en attente` in the list.
 5. Unread badge updates after reads/sends and ignores disabled coach conversations.
-6. A stale direct coach thread that becomes unavailable hides the composer and shows a simple unavailable state.
+6. A stale direct coach thread that becomes unavailable hides the composer and shows invitation recovery actions in place of the composer.
 
 ## 21. Test Scenarios
 - Happy path: send message in a coach conversation.
 - Permissions: access denied for out-of-scope team.
 - Invitation state: `NONE` conversation stays visible in the list, is dimmed, and is not tappable.
-- Permissions: open a stale coach conversation returning `403` and verify the composer disappears while the list row is rewritten as disabled when returning to the list.
+- Invitation recovery: open a stale coach conversation returning `403` and verify the composer is replaced by QR code / link sharing CTA.
 - Errors: message send failure.
 - Edge cases: unread badge remains stale after offline period.
 

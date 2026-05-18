@@ -241,6 +241,7 @@ enum ConversationInvitationStatus: Codable, Equatable {
 struct MessageConversation: Codable, Identifiable {
     let id: String
     let type: String
+    let playerId: String?
     let title: String
     let subtitle: String?
     let lastMessagePreview: String?
