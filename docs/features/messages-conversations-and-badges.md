@@ -71,6 +71,8 @@ Restrictions: depends on message read state and API.
 - Conditions: authenticated and scoped context.
 - Validations: non-empty message content before send.
 - Blocking rules: disable send while posting.
+- Direct coach conversations returned with `invitationStatus: PENDING` show a lightweight `Invitation en attente` hint in the list.
+- A previously reachable direct coach thread that now returns `403` is rendered as unavailable: composer hidden, simple unavailable message shown, stale row removed locally so badge/list stay aligned.
 - Automations: badge updates via notification center.
 
 ## 8. Data Model
@@ -78,10 +80,12 @@ Restrictions: depends on message read state and API.
 Source: messaging APIs.
 Purpose: thread rendering and badge display.
 Format: codable structs.
+- `MessageConversation.invitationStatus` is optional and currently supports `PENDING` and `ACCEPTED` for coach direct threads.
 Constraints: role/team scoped.
 
 ## 9. Business Rules
 - Conversation list may be filtered by active team context.
+- Coach conversations with invitation status `NONE` are not expected in `/messages/conversations`.
 - Read/sent actions should influence unread badge state.
 - Conversation id contract from backend must stay stable.
 
@@ -115,6 +119,7 @@ Constraints: role/team scoped.
 - Network: thread-level alerting and retry paths.
 - Missing data: absent conversation handled gracefully.
 - Permissions: forbidden scope operations blocked by backend.
+- Direct coach thread access denied with `403` is downgraded to a simple unavailable state instead of exposing raw backend wording in the thread UI.
 - Current vs expected: offline draft support not observed.
 
 ## 16. Security
@@ -147,12 +152,14 @@ Constraints: role/team scoped.
 ## 20. Acceptance Criteria
 1. User can load conversations and thread history.
 2. User can send messages in allowed threads.
-3. Unread badge updates after reads/sends.
-4. Errors do not break navigation flow.
+3. Pending coach conversations display `Invitation en attente` in the list.
+4. Unread badge updates after reads/sends and stays aligned with the visible conversation list.
+5. A stale direct coach thread that becomes unavailable hides the composer and shows a simple unavailable state.
 
 ## 21. Test Scenarios
 - Happy path: send message in a coach conversation.
 - Permissions: access denied for out-of-scope team.
+- Permissions: open a stale coach conversation returning `403` and verify the composer disappears and the list/badge no longer keep the stale thread.
 - Errors: message send failure.
 - Edge cases: unread badge remains stale after offline period.
 

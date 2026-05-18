@@ -200,6 +200,39 @@ struct TeamMessagesUnreadCountResponse: Codable {
     let count: Int
 }
 
+enum ConversationInvitationStatus: Codable, Equatable {
+    case pending
+    case accepted
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self).uppercased()
+
+        switch rawValue {
+        case "PENDING":
+            self = .pending
+        case "ACCEPTED":
+            self = .accepted
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch self {
+        case .pending:
+            try container.encode("PENDING")
+        case .accepted:
+            try container.encode("ACCEPTED")
+        case let .unknown(rawValue):
+            try container.encode(rawValue)
+        }
+    }
+}
+
 struct MessageConversation: Codable, Identifiable {
     let id: String
     let type: String
@@ -207,6 +240,7 @@ struct MessageConversation: Codable, Identifiable {
     let subtitle: String?
     let lastMessagePreview: String?
     let lastMessageAt: String?
+    let invitationStatus: ConversationInvitationStatus?
 }
 
 struct ConversationListResponse: Codable {

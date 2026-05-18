@@ -6,6 +6,16 @@ extension Notification.Name {
     static let messagesUnreadCountDidChange = Notification.Name("messagesUnreadCountDidChange")
 }
 
+private extension MessageConversation {
+    var isAnnouncementsConversation: Bool {
+        type == "ANNOUNCEMENTS"
+    }
+
+    var isPendingCoachInvitation: Bool {
+        type == "COACH" && invitationStatus == .pending
+    }
+}
+
 @MainActor
 final class ConversationUnreadStore: ObservableObject {
     @Published private(set) var revision = 0
@@ -61,6 +71,20 @@ final class MessagesListViewModel: ObservableObject {
         let conversations: [MessageConversation]
     }
 
+    func removeConversation(id: String, cacheKey: String) {
+        guard conversations.contains(where: { $0.id == id }) else { return }
+
+        conversations.removeAll { $0.id == id }
+        let updatedConversations = conversations
+
+        Task {
+            await PersistentDataCache.shared.write(
+                MessagesListCachePayload(conversations: updatedConversations),
+                forKey: cacheKey
+            )
+        }
+    }
+
     func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
         var hasCachedData = false
         if !forceRefresh,
@@ -85,6 +109,7 @@ final class ConversationThreadViewModel: ObservableObject {
     @Published private(set) var messages: [ConversationMessage] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isSending = false
+    @Published private(set) var isConversationUnavailable = false
     @Published var draft = ""
     @Published var errorMessage: String?
 
@@ -103,14 +128,15 @@ final class ConversationThreadViewModel: ObservableObject {
         do {
             let response = try await api.conversationMessages(conversationID: conversation.id)
             messages = response.items
+            isConversationUnavailable = false
             errorMessage = nil
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError { handleThreadError(error) }
         }
     }
 
     func sendIfPossible(canSend: Bool) async {
-        guard canSend else { return }
+        guard canSend, !isConversationUnavailable else { return }
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
 
@@ -121,14 +147,29 @@ final class ConversationThreadViewModel: ObservableObject {
             let created = try await api.sendConversationMessage(conversationID: conversation.id, content: content)
             draft = ""
             messages.append(created)
+            isConversationUnavailable = false
             errorMessage = nil
 
-            if conversation.type == "ANNOUNCEMENTS" {
+            if conversation.isAnnouncementsConversation {
                 NotificationCenter.default.post(name: .teamMessagesDidRefresh, object: nil)
             }
         } catch {
-            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            if !error.isCancellationError { handleThreadError(error) }
         }
+    }
+
+    private func handleThreadError(_ error: Error) {
+        if let apiError = error as? APIError,
+           case let APIError.server(status, _) = apiError,
+           status == 403,
+           conversation.type == "COACH" {
+            isConversationUnavailable = true
+            draft = ""
+            errorMessage = nil
+            return
+        }
+
+        errorMessage = error.localizedDescription
     }
 }
 
@@ -157,6 +198,9 @@ struct MessagesView: View {
                         NavigationLink {
                             ConversationThreadView(conversation: conversation) { latestMessageAt in
                                 unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+                            } onConversationUnavailable: { unavailableConversationID in
+                                viewModel.removeConversation(id: unavailableConversationID, cacheKey: dataCacheKey)
+                                publishUnreadCount()
                             }
                         } label: {
                             ConversationRow(
@@ -228,12 +272,12 @@ private struct ConversationRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(conversation.type == "ANNOUNCEMENTS" ? Color.orange.opacity(0.2) : Color.accentColor.opacity(0.18))
+                .fill(conversation.isAnnouncementsConversation ? Color.orange.opacity(0.2) : Color.accentColor.opacity(0.18))
                 .frame(width: 42, height: 42)
                 .overlay {
                     Text(initials)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(conversation.type == "ANNOUNCEMENTS" ? .orange : .accentColor)
+                        .foregroundStyle(conversation.isAnnouncementsConversation ? .orange : .accentColor)
                 }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -261,6 +305,13 @@ private struct ConversationRow: View {
                         .lineLimit(1)
                 }
 
+                if conversation.isPendingCoachInvitation {
+                    Text("Invitation en attente")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
                 if let preview = conversation.lastMessagePreview, !preview.isEmpty {
                     Text(preview)
                         .font(.subheadline)
@@ -273,7 +324,7 @@ private struct ConversationRow: View {
     }
 
     private var initials: String {
-        if conversation.type == "ANNOUNCEMENTS" { return "A" }
+        if conversation.isAnnouncementsConversation { return "A" }
         let words = conversation.title.split(separator: " ")
         if words.count >= 2 {
             return "\(words[0].prefix(1))\(words[1].prefix(1))".uppercased()
@@ -292,15 +343,23 @@ private struct ConversationThreadView: View {
     @StateObject private var viewModel: ConversationThreadViewModel
     @FocusState private var isComposerFocused: Bool
     let onOpened: (String?) -> Void
+    let onConversationUnavailable: (String) -> Void
 
-    init(conversation: MessageConversation, onOpened: @escaping (String?) -> Void = { _ in }) {
+    init(
+        conversation: MessageConversation,
+        onOpened: @escaping (String?) -> Void = { _ in },
+        onConversationUnavailable: @escaping (String) -> Void = { _ in }
+    ) {
         _viewModel = StateObject(wrappedValue: ConversationThreadViewModel(conversation: conversation))
         self.onOpened = onOpened
+        self.onConversationUnavailable = onConversationUnavailable
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if let error = viewModel.errorMessage, !error.isEmpty {
+            if let error = viewModel.errorMessage,
+               !error.isEmpty,
+               !viewModel.isConversationUnavailable {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -332,26 +391,35 @@ private struct ConversationThreadView: View {
 
             Divider()
 
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message", text: $viewModel.draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isComposerFocused)
-                    .lineLimit(1 ... 4)
-                    .disabled(!canSend)
+            if viewModel.isConversationUnavailable {
+                Text("Messagerie directe non disponible")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(.ultraThinMaterial)
+            } else {
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField("Message", text: $viewModel.draft, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isComposerFocused)
+                        .lineLimit(1 ... 4)
+                        .disabled(!canSend)
 
-                Button {
-                    Task {
-                        await viewModel.sendIfPossible(canSend: canSend)
-                        isComposerFocused = false
+                    Button {
+                        Task {
+                            await viewModel.sendIfPossible(canSend: canSend)
+                            isComposerFocused = false
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
                     }
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
+                    .disabled(!canSend || viewModel.isSending || viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .disabled(!canSend || viewModel.isSending || viewModel.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .padding(10)
+                .background(.ultraThinMaterial)
             }
-            .padding(10)
-            .background(.ultraThinMaterial)
         }
         .navigationTitle(viewModel.conversation.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -364,6 +432,11 @@ private struct ConversationThreadView: View {
         .refreshable {
             await viewModel.load()
         }
+        .onChange(of: viewModel.isConversationUnavailable) { _, isUnavailable in
+            guard isUnavailable else { return }
+            isComposerFocused = false
+            onConversationUnavailable(viewModel.conversation.id)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -375,7 +448,7 @@ private struct ConversationThreadView: View {
     }
 
     private var canSend: Bool {
-        if viewModel.conversation.type == "ANNOUNCEMENTS" {
+        if viewModel.conversation.isAnnouncementsConversation {
             return authStore.me?.role.canEditSportData == true
         }
         return true
