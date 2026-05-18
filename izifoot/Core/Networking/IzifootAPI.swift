@@ -327,6 +327,41 @@ final class IzifootAPI {
         )
     }
 
+    func updatePlayer(
+        id: String,
+        firstName: String,
+        lastName: String,
+        email: String,
+        phone: String,
+        primaryPosition: String,
+        secondaryPosition: String,
+        isChild: Bool
+    ) async throws -> Player {
+        struct UpdatePlayerPayload: Encodable {
+            let firstName: String
+            let lastName: String
+            let email: String
+            let phone: String
+            let primary_position: String
+            let secondary_position: String
+            let isChild: Bool
+        }
+
+        return try await client.put(
+            APIRoutes.Players.byID(id),
+            body: UpdatePlayerPayload(
+                firstName: firstName,
+                lastName: lastName,
+                email: email,
+                phone: phone,
+                primary_position: primaryPosition,
+                secondary_position: secondaryPosition,
+                isChild: isChild
+            ),
+            responseType: Player.self
+        )
+    }
+
     func updatePlayerInvitePrerequisites(
         id: String,
         lastName: String,

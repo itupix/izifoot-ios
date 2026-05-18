@@ -3,6 +3,8 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import UIKit
 
+private let defaultPlayerPrimaryPosition = "NON DEFINI"
+
 fileprivate enum PlayerInvitationStatusValue: String {
     case none = "NONE"
     case pending = "PENDING"
@@ -19,6 +21,7 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
     @Published private(set) var isLoading = false
     @Published private(set) var isInviting = false
+    @Published private(set) var isSavingProfile = false
     @Published private(set) var isSavingInvitePrerequisites = false
     @Published private(set) var deletingParentID: String?
     @Published fileprivate var invitationStatus: PlayerInvitationStatusValue = .none
@@ -32,18 +35,22 @@ final class PlayerDetailViewModel: ObservableObject {
         self.api = api
     }
 
+    private func refreshInvitationStatus(id: String) async {
+        do {
+            let invitation = try await api.playerInvitationStatus(id: id)
+            invitationStatus = .fromAPI(invitation.status)
+        } catch {
+            invitationStatus = .none
+        }
+    }
+
     func load(id: String) async {
         isLoading = true
         defer { isLoading = false }
 
         do {
             player = try await api.player(id: id)
-            do {
-                let invitation = try await api.playerInvitationStatus(id: id)
-                invitationStatus = .fromAPI(invitation.status)
-            } catch {
-                invitationStatus = .none
-            }
+            await refreshInvitationStatus(id: id)
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -68,12 +75,48 @@ final class PlayerDetailViewModel: ObservableObject {
         }
     }
 
+    func updatePlayer(
+        id: String,
+        firstName: String,
+        lastName: String,
+        email: String,
+        phone: String,
+        primaryPosition: String,
+        secondaryPosition: String,
+        isChild: Bool
+    ) async -> Bool {
+        isSavingProfile = true
+        defer { isSavingProfile = false }
+
+        do {
+            player = try await api.updatePlayer(
+                id: id,
+                firstName: firstName,
+                lastName: lastName,
+                email: email,
+                phone: phone,
+                primaryPosition: primaryPosition,
+                secondaryPosition: secondaryPosition,
+                isChild: isChild
+            )
+            await refreshInvitationStatus(id: id)
+            NotificationCenter.default.post(name: .playerDidUpdate, object: nil, userInfo: ["playerId": id])
+            errorMessage = nil
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
+        }
+    }
+
     func updateAdultInvitePrerequisites(id: String, lastName: String, email: String, phone: String) async -> Bool {
         isSavingInvitePrerequisites = true
         defer { isSavingInvitePrerequisites = false }
 
         do {
             player = try await api.updatePlayerInvitePrerequisites(id: id, lastName: lastName, email: email, phone: phone)
+            await refreshInvitationStatus(id: id)
+            NotificationCenter.default.post(name: .playerDidUpdate, object: nil, userInfo: ["playerId": id])
             errorMessage = nil
             return true
         } catch {
@@ -101,11 +144,19 @@ struct PlayerDetailView: View {
     let playerID: String
 
     @StateObject private var viewModel = PlayerDetailViewModel()
+    @State private var isEditSheetPresented = false
     @State private var isAdultInvitePrerequisitesSheetPresented = false
     @State private var isParentInviteSheetPresented = false
     @State private var parentInviteEmail = ""
     @State private var parentInvitePhone = ""
     @State private var parentToDelete: Player.ParentContact?
+    @State private var editFirstName = ""
+    @State private var editLastName = ""
+    @State private var editEmail = ""
+    @State private var editPhone = ""
+    @State private var editPrimaryPosition = ""
+    @State private var editSecondaryPosition = ""
+    @State private var editIsChild = false
 
     var body: some View {
         List {
@@ -185,7 +236,7 @@ struct PlayerDetailView: View {
                                 Task { await viewModel.invitePlayer(id: playerID) }
                             }
                         }
-                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites)
+                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
                     }
                 }
             }
@@ -196,8 +247,46 @@ struct PlayerDetailView: View {
             }
         }
         .navigationTitle("Joueur")
+        .toolbar {
+            if let player = viewModel.player {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Modifier") {
+                        prepareEditSheet(for: player)
+                    }
+                    .disabled(viewModel.isSavingProfile || viewModel.isSavingInvitePrerequisites || viewModel.isInviting)
+                }
+            }
+        }
         .task {
             await viewModel.load(id: playerID)
+        }
+        .sheet(isPresented: $isEditSheetPresented) {
+            EditPlayerSheet(
+                firstName: $editFirstName,
+                lastName: $editLastName,
+                email: $editEmail,
+                phone: $editPhone,
+                primaryPosition: $editPrimaryPosition,
+                secondaryPosition: $editSecondaryPosition,
+                isChild: $editIsChild,
+                isSaving: viewModel.isSavingProfile
+            ) { payload in
+                let saved = await viewModel.updatePlayer(
+                    id: playerID,
+                    firstName: payload.firstName,
+                    lastName: payload.lastName,
+                    email: payload.email,
+                    phone: payload.phone,
+                    primaryPosition: payload.primaryPosition.isEmpty ? defaultPlayerPrimaryPosition : payload.primaryPosition,
+                    secondaryPosition: payload.secondaryPosition,
+                    isChild: payload.isChild
+                )
+                if saved {
+                    isEditSheetPresented = false
+                }
+                return saved
+            }
+            .presentationDetents([.large])
         }
         .sheet(isPresented: $viewModel.isInviteSheetPresented) {
             if let url = viewModel.inviteURL {
@@ -292,6 +381,24 @@ struct PlayerDetailView: View {
         }
     }
 
+    private func prepareEditSheet(for player: Player) {
+        editFirstName = player.firstName ?? ""
+        editLastName = player.lastName ?? ""
+        editEmail = player.email ?? ""
+        editPhone = player.phone ?? ""
+        editPrimaryPosition = editablePrimaryPosition(player.primaryPosition)
+        editSecondaryPosition = player.secondaryPosition ?? ""
+        editIsChild = player.isChild
+        isEditSheetPresented = true
+    }
+
+    private func editablePrimaryPosition(_ value: String?) -> String {
+        guard let value else { return "" }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.uppercased() != defaultPlayerPrimaryPosition else { return "" }
+        return trimmed
+    }
+
     private func invitationStatusLabel(_ status: PlayerInvitationStatusValue) -> String {
         switch status {
         case .none: return "Non invité"
@@ -354,6 +461,142 @@ struct PlayerDetailView: View {
         guard hasValue(value) else { return "—" }
         guard let value else { return "—" }
         return value
+    }
+}
+
+private struct EditPlayerPayload {
+    let firstName: String
+    let lastName: String
+    let email: String
+    let phone: String
+    let primaryPosition: String
+    let secondaryPosition: String
+    let isChild: Bool
+}
+
+private struct EditPlayerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var firstName: String
+    @Binding var lastName: String
+    @Binding var email: String
+    @Binding var phone: String
+    @Binding var primaryPosition: String
+    @Binding var secondaryPosition: String
+    @Binding var isChild: Bool
+
+    let isSaving: Bool
+    let onSubmit: (EditPlayerPayload) async -> Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Identité") {
+                    TextField("Prénom", text: $firstName)
+                        .textInputAutocapitalization(.words)
+                    TextField("Nom", text: $lastName)
+                        .textInputAutocapitalization(.words)
+                    Toggle("Enfant", isOn: $isChild)
+                }
+
+                Section("Sport") {
+                    TextField("Poste principal", text: $primaryPosition)
+                        .textInputAutocapitalization(.words)
+                    TextField("Poste secondaire", text: $secondaryPosition)
+                        .textInputAutocapitalization(.words)
+                }
+
+                if !isChild {
+                    Section("Contact") {
+                        TextField("Email", text: $email)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                        TextField("Téléphone", text: $phone)
+                            .keyboardType(.phonePad)
+                    }
+
+                    Section {
+                        Text("Le nom, l’e-mail et le téléphone sont requis uniquement pour l’invitation du joueur adulte.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if !trimmedEmail.isEmpty, !isValidEmail(trimmedEmail) {
+                            Text("Merci de saisir une adresse e-mail valide.")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } else {
+                    Section {
+                        Text("Pour un enfant, les coordonnées se gèrent via l’invitation d’un parent.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Modifier")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Fermer") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSaving ? "Enregistrement…" : "Enregistrer") {
+                        Task {
+                            let saved = await onSubmit(
+                                EditPlayerPayload(
+                                    firstName: trimmedFirstName,
+                                    lastName: trimmedLastName,
+                                    email: isChild ? "" : trimmedEmail,
+                                    phone: isChild ? "" : trimmedPhone,
+                                    primaryPosition: trimmedPrimaryPosition,
+                                    secondaryPosition: trimmedSecondaryPosition,
+                                    isChild: isChild
+                                )
+                            )
+                            if saved {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(!canSubmit || isSaving)
+                }
+            }
+        }
+    }
+
+    private var trimmedFirstName: String {
+        firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedLastName: String {
+        lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedPhone: String {
+        phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedPrimaryPosition: String {
+        primaryPosition.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedSecondaryPosition: String {
+        secondaryPosition.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSubmit: Bool {
+        !trimmedFirstName.isEmpty && (isChild || trimmedEmail.isEmpty || isValidEmail(trimmedEmail))
+    }
+
+    private func isValidEmail(_ value: String) -> Bool {
+        let pattern = #"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"#
+        return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 }
 

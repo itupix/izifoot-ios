@@ -527,6 +527,14 @@ struct PlayersHomeView: View {
                     await statsViewModel.load(players: viewModel.players)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .playerDidUpdate)) { _ in
+                Task {
+                    await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                    if selectedTab == .stats {
+                        await statsViewModel.load(players: viewModel.players)
+                    }
+                }
+            }
         }
     }
 

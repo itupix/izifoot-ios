@@ -28,6 +28,7 @@ enum APIError: Error, LocalizedError {
 
 extension Notification.Name {
     static let sessionDidExpire = Notification.Name("sessionDidExpire")
+    static let playerDidUpdate = Notification.Name("playerDidUpdate")
 }
 
 extension Error {
