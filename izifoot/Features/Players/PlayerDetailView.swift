@@ -81,6 +81,7 @@ final class PlayerDetailViewModel: ObservableObject {
         lastName: String,
         email: String,
         phone: String,
+        licence: String,
         primaryPosition: String,
         secondaryPosition: String,
         isChild: Bool
@@ -95,6 +96,7 @@ final class PlayerDetailViewModel: ObservableObject {
                 lastName: lastName,
                 email: email,
                 phone: phone,
+                licence: licence,
                 primaryPosition: primaryPosition,
                 secondaryPosition: secondaryPosition,
                 isChild: isChild
@@ -154,6 +156,7 @@ struct PlayerDetailView: View {
     @State private var editLastName = ""
     @State private var editEmail = ""
     @State private var editPhone = ""
+    @State private var editLicence = ""
     @State private var editPrimaryPosition = ""
     @State private var editSecondaryPosition = ""
     @State private var editIsChild = false
@@ -169,6 +172,7 @@ struct PlayerDetailView: View {
                 }
 
                 Section("Sport") {
+                    LabeledContent("Licence", value: displayValue(player.licence))
                     if let primaryPosition = player.primaryPosition {
                         LabeledContent("Poste principal", value: primaryPosition)
                     }
@@ -274,6 +278,7 @@ struct PlayerDetailView: View {
                 lastName: $editLastName,
                 email: $editEmail,
                 phone: $editPhone,
+                licence: $editLicence,
                 primaryPosition: $editPrimaryPosition,
                 secondaryPosition: $editSecondaryPosition,
                 isChild: $editIsChild,
@@ -285,6 +290,7 @@ struct PlayerDetailView: View {
                     lastName: payload.lastName,
                     email: payload.email,
                     phone: payload.phone,
+                    licence: payload.licence,
                     primaryPosition: payload.primaryPosition.isEmpty ? defaultPlayerPrimaryPosition : payload.primaryPosition,
                     secondaryPosition: payload.secondaryPosition,
                     isChild: payload.isChild
@@ -394,6 +400,7 @@ struct PlayerDetailView: View {
         editLastName = player.lastName ?? ""
         editEmail = player.email ?? ""
         editPhone = player.phone ?? ""
+        editLicence = player.licence ?? ""
         editPrimaryPosition = editablePrimaryPosition(player.primaryPosition)
         editSecondaryPosition = player.secondaryPosition ?? ""
         editIsChild = player.isChild
@@ -489,6 +496,7 @@ private struct EditPlayerPayload {
     let lastName: String
     let email: String
     let phone: String
+    let licence: String
     let primaryPosition: String
     let secondaryPosition: String
     let isChild: Bool
@@ -501,6 +509,7 @@ private struct EditPlayerSheet: View {
     @Binding var lastName: String
     @Binding var email: String
     @Binding var phone: String
+    @Binding var licence: String
     @Binding var primaryPosition: String
     @Binding var secondaryPosition: String
     @Binding var isChild: Bool
@@ -520,6 +529,8 @@ private struct EditPlayerSheet: View {
                 }
 
                 Section("Sport") {
+                    TextField("Licence", text: $licence)
+                        .textInputAutocapitalization(.characters)
                     TextField("Poste principal", text: $primaryPosition)
                         .textInputAutocapitalization(.words)
                     TextField("Poste secondaire", text: $secondaryPosition)
@@ -570,6 +581,7 @@ private struct EditPlayerSheet: View {
                                     lastName: trimmedLastName,
                                     email: isChild ? "" : trimmedEmail,
                                     phone: isChild ? "" : trimmedPhone,
+                                    licence: trimmedLicence,
                                     primaryPosition: trimmedPrimaryPosition,
                                     secondaryPosition: trimmedSecondaryPosition,
                                     isChild: isChild
@@ -600,6 +612,10 @@ private struct EditPlayerSheet: View {
 
     private var trimmedPhone: String {
         phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedLicence: String {
+        licence.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedPrimaryPosition: String {
