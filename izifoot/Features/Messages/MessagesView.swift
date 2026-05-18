@@ -11,8 +11,22 @@ private extension MessageConversation {
         type == "ANNOUNCEMENTS"
     }
 
+    var isDisabledCoachConversation: Bool {
+        type == "COACH" && invitationStatus == .none
+    }
+
     var isPendingCoachInvitation: Bool {
         type == "COACH" && invitationStatus == .pending
+    }
+
+    var coachConversationStatusLabel: String? {
+        if isDisabledCoachConversation {
+            return "Invitation requise"
+        }
+        if isPendingCoachInvitation {
+            return "Invitation en attente"
+        }
+        return nil
     }
 }
 
@@ -31,6 +45,7 @@ final class ConversationUnreadStore: ObservableObject {
     }
 
     func hasUnread(_ conversation: MessageConversation) -> Bool {
+        if conversation.isDisabledCoachConversation { return false }
         guard let lastMessageAt = conversation.lastMessageAt,
               let lastDate = DateFormatters.parseISODate(lastMessageAt),
               let userID = currentUserID,
@@ -69,20 +84,6 @@ final class MessagesListViewModel: ObservableObject {
 
     private struct MessagesListCachePayload: Codable {
         let conversations: [MessageConversation]
-    }
-
-    func removeConversation(id: String, cacheKey: String) {
-        guard conversations.contains(where: { $0.id == id }) else { return }
-
-        conversations.removeAll { $0.id == id }
-        let updatedConversations = conversations
-
-        Task {
-            await PersistentDataCache.shared.write(
-                MessagesListCachePayload(conversations: updatedConversations),
-                forKey: cacheKey
-            )
-        }
     }
 
     func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
@@ -195,18 +196,24 @@ struct MessagesView: View {
                     .listRowSeparator(.hidden)
                 } else {
                     ForEach(viewModel.conversations) { conversation in
-                        NavigationLink {
-                            ConversationThreadView(conversation: conversation) { latestMessageAt in
-                                unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
-                            } onConversationUnavailable: { unavailableConversationID in
-                                viewModel.removeConversation(id: unavailableConversationID, cacheKey: dataCacheKey)
-                                publishUnreadCount()
-                            }
-                        } label: {
+                        if conversation.isDisabledCoachConversation {
                             ConversationRow(
                                 conversation: conversation,
-                                showsUnreadDot: unreadStore.hasUnread(conversation)
+                                showsUnreadDot: false,
+                                isDisabled: true
                             )
+                        } else {
+                            NavigationLink {
+                                ConversationThreadView(conversation: conversation) { latestMessageAt in
+                                    unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+                                }
+                            } label: {
+                                ConversationRow(
+                                    conversation: conversation,
+                                    showsUnreadDot: unreadStore.hasUnread(conversation),
+                                    isDisabled: false
+                                )
+                            }
                         }
                     }
                 }
@@ -268,6 +275,7 @@ struct MessagesView: View {
 private struct ConversationRow: View {
     let conversation: MessageConversation
     let showsUnreadDot: Bool
+    let isDisabled: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -305,10 +313,10 @@ private struct ConversationRow: View {
                         .lineLimit(1)
                 }
 
-                if conversation.isPendingCoachInvitation {
-                    Text("Invitation en attente")
+                if let statusLabel = conversation.coachConversationStatusLabel {
+                    Text(statusLabel)
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(conversation.isDisabledCoachConversation ? .orange : .secondary)
                         .lineLimit(1)
                 }
 
@@ -321,6 +329,7 @@ private struct ConversationRow: View {
             }
         }
         .padding(.vertical, 4)
+        .opacity(isDisabled ? 0.52 : 1)
     }
 
     private var initials: String {
@@ -343,16 +352,10 @@ private struct ConversationThreadView: View {
     @StateObject private var viewModel: ConversationThreadViewModel
     @FocusState private var isComposerFocused: Bool
     let onOpened: (String?) -> Void
-    let onConversationUnavailable: (String) -> Void
 
-    init(
-        conversation: MessageConversation,
-        onOpened: @escaping (String?) -> Void = { _ in },
-        onConversationUnavailable: @escaping (String) -> Void = { _ in }
-    ) {
+    init(conversation: MessageConversation, onOpened: @escaping (String?) -> Void = { _ in }) {
         _viewModel = StateObject(wrappedValue: ConversationThreadViewModel(conversation: conversation))
         self.onOpened = onOpened
-        self.onConversationUnavailable = onConversationUnavailable
     }
 
     var body: some View {
@@ -433,9 +436,7 @@ private struct ConversationThreadView: View {
             await viewModel.load()
         }
         .onChange(of: viewModel.isConversationUnavailable) { _, isUnavailable in
-            guard isUnavailable else { return }
-            isComposerFocused = false
-            onConversationUnavailable(viewModel.conversation.id)
+            if isUnavailable { isComposerFocused = false }
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -448,6 +449,7 @@ private struct ConversationThreadView: View {
     }
 
     private var canSend: Bool {
+        if viewModel.isConversationUnavailable { return false }
         if viewModel.conversation.isAnnouncementsConversation {
             return authStore.me?.role.canEditSportData == true
         }

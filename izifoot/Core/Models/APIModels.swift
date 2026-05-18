@@ -201,6 +201,7 @@ struct TeamMessagesUnreadCountResponse: Codable {
 }
 
 enum ConversationInvitationStatus: Codable, Equatable {
+    case none
     case pending
     case accepted
     case unknown(String)
@@ -210,6 +211,8 @@ enum ConversationInvitationStatus: Codable, Equatable {
         let rawValue = try container.decode(String.self).uppercased()
 
         switch rawValue {
+        case "NONE":
+            self = .none
         case "PENDING":
             self = .pending
         case "ACCEPTED":
@@ -223,6 +226,8 @@ enum ConversationInvitationStatus: Codable, Equatable {
         var container = encoder.singleValueContainer()
 
         switch self {
+        case .none:
+            try container.encode("NONE")
         case .pending:
             try container.encode("PENDING")
         case .accepted:
