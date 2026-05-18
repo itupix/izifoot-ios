@@ -111,11 +111,10 @@ struct PlayerDetailView: View {
         List {
             if let player = viewModel.player {
                 Section("Identité") {
-                    LabeledContent("Nom", value: player.name)
                     if let firstName = player.firstName {
                         LabeledContent("Prénom", value: firstName)
                     }
-                    LabeledContent("Nom de famille", value: displayValue(player.lastName))
+                    LabeledContent("Nom", value: displayValue(player.lastName))
                 }
 
                 Section("Sport") {
