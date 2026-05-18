@@ -11,6 +11,18 @@ private extension MessageConversation {
         type == "ANNOUNCEMENTS"
     }
 
+    func withInvitationStatus(_ status: ConversationInvitationStatus?) -> MessageConversation {
+        MessageConversation(
+            id: id,
+            type: type,
+            title: title,
+            subtitle: subtitle,
+            lastMessagePreview: lastMessagePreview,
+            lastMessageAt: lastMessageAt,
+            invitationStatus: status
+        )
+    }
+
     var isDisabledCoachConversation: Bool {
         type == "COACH" && invitationStatus == .none
     }
@@ -84,6 +96,21 @@ final class MessagesListViewModel: ObservableObject {
 
     private struct MessagesListCachePayload: Codable {
         let conversations: [MessageConversation]
+    }
+
+    func markConversationUnavailable(id: String, cacheKey: String) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        let conversation = conversations[index]
+        guard conversation.type == "COACH", conversation.invitationStatus != .none else { return }
+
+        conversations[index] = conversation.withInvitationStatus(.none)
+        let updatedConversations = conversations
+        Task {
+            await PersistentDataCache.shared.write(
+                MessagesListCachePayload(conversations: updatedConversations),
+                forKey: cacheKey
+            )
+        }
     }
 
     func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
@@ -178,7 +205,7 @@ struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var viewModel = MessagesListViewModel()
     @StateObject private var unreadStore = ConversationUnreadStore()
-    private var dataCacheKey: String { "messages-home-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String { "messages-home-v2-\(authStore.me?.id ?? "anonymous")" }
 
     var body: some View {
         NavigationStack {
@@ -206,6 +233,9 @@ struct MessagesView: View {
                             NavigationLink {
                                 ConversationThreadView(conversation: conversation) { latestMessageAt in
                                     unreadStore.markConversationRead(conversationID: conversation.id, lastMessageAt: latestMessageAt)
+                                } onConversationUnavailable: { unavailableConversationID in
+                                    viewModel.markConversationUnavailable(id: unavailableConversationID, cacheKey: dataCacheKey)
+                                    publishUnreadCount()
                                 }
                             } label: {
                                 ConversationRow(
@@ -352,10 +382,16 @@ private struct ConversationThreadView: View {
     @StateObject private var viewModel: ConversationThreadViewModel
     @FocusState private var isComposerFocused: Bool
     let onOpened: (String?) -> Void
+    let onConversationUnavailable: (String) -> Void
 
-    init(conversation: MessageConversation, onOpened: @escaping (String?) -> Void = { _ in }) {
+    init(
+        conversation: MessageConversation,
+        onOpened: @escaping (String?) -> Void = { _ in },
+        onConversationUnavailable: @escaping (String) -> Void = { _ in }
+    ) {
         _viewModel = StateObject(wrappedValue: ConversationThreadViewModel(conversation: conversation))
         self.onOpened = onOpened
+        self.onConversationUnavailable = onConversationUnavailable
     }
 
     var body: some View {
@@ -436,7 +472,10 @@ private struct ConversationThreadView: View {
             await viewModel.load()
         }
         .onChange(of: viewModel.isConversationUnavailable) { _, isUnavailable in
-            if isUnavailable { isComposerFocused = false }
+            if isUnavailable {
+                isComposerFocused = false
+                onConversationUnavailable(viewModel.conversation.id)
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {

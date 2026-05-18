@@ -74,7 +74,7 @@ Restrictions: depends on message read state and API.
 - Direct coach conversations remain visible in the list for `invitationStatus: NONE`, `PENDING`, and `ACCEPTED`.
 - `invitationStatus: NONE` renders the row as disabled and non tappable, with an explicit invitation-required hint.
 - Direct coach conversations returned with `invitationStatus: PENDING` show a lightweight `Invitation en attente` hint in the list.
-- A previously reachable direct coach thread that now returns `403` is rendered as unavailable with the composer hidden, while the row stays present in the list.
+- A previously reachable direct coach thread that now returns `403` is rendered as unavailable with the composer hidden, and the list row is rewritten locally as disabled on return.
 - Automations: badge updates via notification center.
 
 ## 8. Data Model
@@ -108,7 +108,7 @@ Constraints: role/team scoped.
 - API: `/messages/conversations`, `/messages/conversations/:id/messages`, `/team-messages/unread-count`.
 
 ## 13. Persistence
-- Client: in-memory conversation/thread state.
+- Client: in-memory conversation/thread state plus cached conversation list keyed per user.
 - Backend: direct/team message and read markers.
 
 ## 14. Dependencies
@@ -163,7 +163,7 @@ Constraints: role/team scoped.
 - Happy path: send message in a coach conversation.
 - Permissions: access denied for out-of-scope team.
 - Invitation state: `NONE` conversation stays visible in the list, is dimmed, and is not tappable.
-- Permissions: open a stale coach conversation returning `403` and verify the composer disappears while the list row remains visible.
+- Permissions: open a stale coach conversation returning `403` and verify the composer disappears while the list row is rewritten as disabled when returning to the list.
 - Errors: message send failure.
 - Edge cases: unread badge remains stale after offline period.
 
