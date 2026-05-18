@@ -85,7 +85,8 @@ final class PlayerDetailViewModel: ObservableObject {
         dateOfBirth: String,
         primaryPosition: String,
         secondaryPosition: String,
-        isChild: Bool
+        isChild: Bool,
+        teamID: String
     ) async -> Bool {
         isSavingProfile = true
         defer { isSavingProfile = false }
@@ -101,8 +102,12 @@ final class PlayerDetailViewModel: ObservableObject {
                 dateOfBirth: dateOfBirth,
                 primaryPosition: primaryPosition,
                 secondaryPosition: secondaryPosition,
-                isChild: isChild
+                isChild: isChild,
+                teamID: teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : teamID
             )
+            if !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AppSession.shared.activeTeamID = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             await refreshInvitationStatus(id: id)
             NotificationCenter.default.post(name: .playerDidUpdate, object: nil, userInfo: ["playerId": id])
             errorMessage = nil
@@ -147,6 +152,8 @@ final class PlayerDetailViewModel: ObservableObject {
 struct PlayerDetailView: View {
     let playerID: String
 
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = PlayerDetailViewModel()
     @State private var isEditSheetPresented = false
     @State private var isAdultInvitePrerequisitesSheetPresented = false
@@ -163,6 +170,7 @@ struct PlayerDetailView: View {
     @State private var editPrimaryPosition = ""
     @State private var editSecondaryPosition = ""
     @State private var editIsChild = false
+    @State private var editTeamID = ""
 
     var body: some View {
         List {
@@ -173,6 +181,11 @@ struct PlayerDetailView: View {
                     }
                     LabeledContent("Nom", value: displayValue(player.lastName))
                     LabeledContent("Date de naissance", value: displayDate(player.dateOfBirth))
+                }
+
+                Section("Club et équipe") {
+                    LabeledContent("Club", value: playerClubLabel)
+                    LabeledContent("Équipe", value: playerTeamLabel)
                 }
 
                 Section("Sport") {
@@ -287,6 +300,11 @@ struct PlayerDetailView: View {
                 primaryPosition: $editPrimaryPosition,
                 secondaryPosition: $editSecondaryPosition,
                 isChild: $editIsChild,
+                teamID: $editTeamID,
+                clubName: playerClubLabel,
+                teamOptions: writableTeamOptions,
+                canEditTeam: writableTeamOptions.count > 1,
+                currentTeamLabel: playerTeamLabel,
                 isSaving: viewModel.isSavingProfile
             ) { payload in
                 let saved = await viewModel.updatePlayer(
@@ -299,9 +317,13 @@ struct PlayerDetailView: View {
                     dateOfBirth: payload.dateOfBirth,
                     primaryPosition: payload.primaryPosition.isEmpty ? defaultPlayerPrimaryPosition : payload.primaryPosition,
                     secondaryPosition: payload.secondaryPosition,
-                    isChild: payload.isChild
+                    isChild: payload.isChild,
+                    teamID: payload.teamID
                 )
                 if saved {
+                    if !payload.teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        teamScopeStore.selectedTeamID = payload.teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                     isEditSheetPresented = false
                 }
                 return saved
@@ -411,7 +433,57 @@ struct PlayerDetailView: View {
         editPrimaryPosition = editablePrimaryPosition(player.primaryPosition)
         editSecondaryPosition = player.secondaryPosition ?? ""
         editIsChild = player.isChild
+        editTeamID = normalizedTeamID(player.teamId) ?? writableTeamOptions.first?.id ?? ""
         isEditSheetPresented = true
+    }
+
+    private var writableTeamOptions: [TeamOption] {
+        var scopedTeams = teamScopeStore.teams
+
+        if let me = authStore.me {
+            switch me.role {
+            case .coach:
+                let managedTeamIDs = Set(me.managedTeamIds.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                if !managedTeamIDs.isEmpty {
+                    scopedTeams = scopedTeams.filter { managedTeamIDs.contains($0.id) }
+                    if scopedTeams.isEmpty {
+                        scopedTeams = managedTeamIDs.sorted().map { teamID in
+                            let existing = teamScopeStore.teams.first(where: { $0.id == teamID })
+                            return TeamOption(id: teamID, name: existing?.name ?? teamID, format: existing?.format)
+                        }
+                    }
+                }
+            case .direction:
+                break
+            default:
+                if let currentTeamID = normalizedTeamID(me.teamId) {
+                    scopedTeams = scopedTeams.filter { $0.id == currentTeamID }
+                } else {
+                    scopedTeams = []
+                }
+            }
+        }
+
+        if let player = viewModel.player,
+           let currentTeamID = normalizedTeamID(player.teamId),
+           !scopedTeams.contains(where: { $0.id == currentTeamID }) {
+            scopedTeams.append(
+                TeamOption(
+                    id: currentTeamID,
+                    name: normalizedValue(player.teamName) ?? currentTeamID,
+                    format: nil
+                )
+            )
+        }
+
+        var deduped: [TeamOption] = []
+        var seen = Set<String>()
+        for team in scopedTeams {
+            guard !seen.contains(team.id) else { continue }
+            seen.insert(team.id)
+            deduped.append(team)
+        }
+        return deduped
     }
 
     private func editablePrimaryPosition(_ value: String?) -> String {
@@ -419,6 +491,21 @@ struct PlayerDetailView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.uppercased() != defaultPlayerPrimaryPosition else { return "" }
         return trimmed
+    }
+
+    private var playerClubLabel: String {
+        normalizedValue(viewModel.player?.clubName) ?? "—"
+    }
+
+    private var playerTeamLabel: String {
+        if let playerTeamName = normalizedValue(viewModel.player?.teamName) {
+            return playerTeamName
+        }
+        if let playerTeamID = normalizedTeamID(viewModel.player?.teamId),
+           let scopedTeamName = writableTeamOptions.first(where: { $0.id == playerTeamID })?.name {
+            return scopedTeamName
+        }
+        return normalizedTeamID(viewModel.player?.teamId) ?? "—"
     }
 
     private var playerNavigationTitle: String {
@@ -495,6 +582,16 @@ struct PlayerDetailView: View {
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private func normalizedValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalizedTeamID(_ value: String?) -> String? {
+        normalizedValue(value)
+    }
+
     private func isValidEmail(_ value: String?) -> Bool {
         guard let value else { return false }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -525,6 +622,7 @@ private struct EditPlayerPayload {
     let primaryPosition: String
     let secondaryPosition: String
     let isChild: Bool
+    let teamID: String
 }
 
 private struct EditPlayerSheet: View {
@@ -539,7 +637,12 @@ private struct EditPlayerSheet: View {
     @Binding var primaryPosition: String
     @Binding var secondaryPosition: String
     @Binding var isChild: Bool
+    @Binding var teamID: String
 
+    let clubName: String
+    let teamOptions: [TeamOption]
+    let canEditTeam: Bool
+    let currentTeamLabel: String
     let isSaving: Bool
     let onSubmit: (EditPlayerPayload) async -> Bool
 
@@ -557,6 +660,11 @@ private struct EditPlayerSheet: View {
         primaryPosition: Binding<String>,
         secondaryPosition: Binding<String>,
         isChild: Binding<Bool>,
+        teamID: Binding<String>,
+        clubName: String,
+        teamOptions: [TeamOption],
+        canEditTeam: Bool,
+        currentTeamLabel: String,
         isSaving: Bool,
         onSubmit: @escaping (EditPlayerPayload) async -> Bool
     ) {
@@ -569,6 +677,11 @@ private struct EditPlayerSheet: View {
         _primaryPosition = primaryPosition
         _secondaryPosition = secondaryPosition
         _isChild = isChild
+        _teamID = teamID
+        self.clubName = clubName
+        self.teamOptions = teamOptions
+        self.canEditTeam = canEditTeam
+        self.currentTeamLabel = currentTeamLabel
         self.isSaving = isSaving
         self.onSubmit = onSubmit
 
@@ -623,6 +736,19 @@ private struct EditPlayerSheet: View {
                         .textInputAutocapitalization(.words)
                 }
 
+                Section("Affectation") {
+                    LabeledContent("Club", value: displayValue(clubName))
+                    if canEditTeam {
+                        Picker("Équipe", selection: $teamID) {
+                            ForEach(teamOptions) { team in
+                                Text(team.name).tag(team.id)
+                            }
+                        }
+                    } else {
+                        LabeledContent("Équipe", value: displayValue(currentTeamLabel))
+                    }
+                }
+
                 if !isChild {
                     Section("Contact") {
                         TextField("Email", text: $email)
@@ -671,7 +797,8 @@ private struct EditPlayerSheet: View {
                                     dateOfBirth: normalizedDateOfBirth,
                                     primaryPosition: trimmedPrimaryPosition,
                                     secondaryPosition: trimmedSecondaryPosition,
-                                    isChild: isChild
+                                    isChild: isChild,
+                                    teamID: trimmedTeamID
                                 )
                             )
                             if saved {
@@ -705,6 +832,10 @@ private struct EditPlayerSheet: View {
         licence.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var trimmedTeamID: String {
+        teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var normalizedDateOfBirth: String {
         guard hasDateOfBirth, didSetDateOfBirth else { return "" }
         return DateFormatters.isoDateOnlyString(from: selectedDateOfBirth)
@@ -725,6 +856,11 @@ private struct EditPlayerSheet: View {
     private func isValidEmail(_ value: String) -> Bool {
         let pattern = #"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"#
         return value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func displayValue(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "—" : trimmed
     }
 }
 

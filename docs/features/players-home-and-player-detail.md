@@ -57,7 +57,7 @@ Restrictions: dependent on multi-endpoint calls.
 - API: players endpoints, invitation status/invite, parent delete, aggregate endpoints.
 
 ## 6. User Flows
-- Main flow: open players list -> quick-create player with first name only -> open detail -> edit identity/contact/sport/licence/date-of-birth fields if needed -> add/invite a parent account from the `Parents` or `Invitation compte` section when the player is a child -> complete invite prerequisites if needed -> invite.
+- Main flow: open players list -> quick-create player with first name only -> open detail -> review club/team context -> edit identity/contact/sport/licence/date-of-birth fields if needed -> if authorized reassign the player to another team -> add/invite a parent account from the `Parents` or `Invitation compte` section when the player is a child -> complete invite prerequisites if needed -> invite.
 - Variants: send invite or remove parent link.
 - Back navigation: detail back to list.
 - Interruptions: invite action errors.
@@ -65,7 +65,7 @@ Restrictions: dependent on multi-endpoint calls.
 - Edge cases: legacy payload aliases.
 
 ## 7. Functional Behavior
-- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
+- UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, visible club/team context, conditional team reassignment when several writable teams exist, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
 - Actions: CRUD plus invite operations.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
@@ -85,6 +85,7 @@ Constraints: backend role/scope and field constraints.
 - Parent deletion uses dedicated endpoint and refreshes player data.
 - Adult invite flow stays separate from quick-create and requires explicit profile completion on detail.
 - Player list is paginated.
+- Team reassignment stays limited to writable teams and shifts the active team scope to the newly assigned team after save.
 
 ## 10. State Machine
 - Player states: created/updated/deleted.
@@ -146,13 +147,14 @@ Constraints: backend role/scope and field constraints.
 
 ## 20. Acceptance Criteria
 1. Admin/coach can quick-create a player with first name only on iOS.
-2. Admin/coach can edit player identity, date of birth, licence, sport, and contact fields from player detail.
-3. Invite and parent unlink actions function correctly.
-4. Unauthorized roles cannot access players tab.
-5. Failure states are visible without app crash.
+2. Admin/coach can see the player club and team on detail.
+3. Admin/coach can edit player identity, date of birth, licence, sport, contact fields, and team assignment from player detail when several writable teams exist.
+4. Invite and parent unlink actions function correctly.
+5. Unauthorized roles cannot access players tab.
+6. Failure states are visible without app crash.
 
 ## 21. Test Scenarios
-- Happy path: quick-create player, edit the player from detail including licence and date of birth, complete invite prerequisites, then send invite.
+- Happy path: quick-create player, inspect club/team, reassign team if needed, edit the player from detail including licence and date of birth, complete invite prerequisites, then send invite.
 - Permissions: parent has no player management access.
 - Errors: invitation status endpoint failure or adult invite blocked until required profile fields are completed.
 - Edge cases: player payload using legacy keys only.

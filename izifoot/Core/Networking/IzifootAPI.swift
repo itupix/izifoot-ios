@@ -337,7 +337,8 @@ final class IzifootAPI {
         dateOfBirth: String,
         primaryPosition: String,
         secondaryPosition: String,
-        isChild: Bool
+        isChild: Bool,
+        teamID: String?
     ) async throws -> Player {
         struct UpdatePlayerPayload: Encodable {
             let firstName: String
@@ -349,6 +350,8 @@ final class IzifootAPI {
             let primary_position: String
             let secondary_position: String
             let isChild: Bool
+            let teamId: String?
+            let team_id: String?
         }
 
         return try await client.put(
@@ -362,7 +365,9 @@ final class IzifootAPI {
                 dateOfBirth: dateOfBirth,
                 primary_position: primaryPosition,
                 secondary_position: secondaryPosition,
-                isChild: isChild
+                isChild: isChild,
+                teamId: teamID,
+                team_id: teamID
             ),
             responseType: Player.self
         )

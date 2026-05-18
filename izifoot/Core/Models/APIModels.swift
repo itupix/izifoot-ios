@@ -369,7 +369,10 @@ struct Player: Decodable, Identifiable {
     let phone: String?
     let isChild: Bool
     let parentContacts: [ParentContact]
+    let clubId: String?
+    let clubName: String?
     let teamId: String?
+    let teamName: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -392,7 +395,12 @@ struct Player: Decodable, Identifiable {
         case is_child
         case enfant
         case parentContacts
+        case clubId
+        case clubName
         case teamId
+        case team_id
+        case teamName
+        case team_name
     }
 
     init(from decoder: Decoder) throws {
@@ -418,7 +426,12 @@ struct Player: Decodable, Identifiable {
             ?? (try? container.decodeIfPresent(Bool.self, forKey: .enfant))
             ?? false
         parentContacts = (try? container.decodeIfPresent([ParentContact].self, forKey: .parentContacts)) ?? []
+        clubId = try? container.decodeIfPresent(String.self, forKey: .clubId)
+        clubName = try? container.decodeIfPresent(String.self, forKey: .clubName)
         teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+            ?? container.decodeIfPresent(String.self, forKey: .team_id)
+        teamName = try? container.decodeIfPresent(String.self, forKey: .teamName)
+            ?? container.decodeIfPresent(String.self, forKey: .team_name)
     }
 
     init(
@@ -434,7 +447,10 @@ struct Player: Decodable, Identifiable {
         phone: String? = nil,
         isChild: Bool = false,
         parentContacts: [ParentContact] = [],
-        teamId: String? = nil
+        clubId: String? = nil,
+        clubName: String? = nil,
+        teamId: String? = nil,
+        teamName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -448,7 +464,10 @@ struct Player: Decodable, Identifiable {
         self.phone = phone
         self.isChild = isChild
         self.parentContacts = parentContacts
+        self.clubId = clubId
+        self.clubName = clubName
         self.teamId = teamId
+        self.teamName = teamName
     }
 }
 
