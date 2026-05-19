@@ -569,6 +569,21 @@ struct PlayerInviteResponse: Decodable {
     let inviteUrl: String?
 }
 
+struct CoachInviteMutationResponse: Decodable {
+    let invitationStatus: String?
+    let status: String?
+    let inviteUrl: String?
+    let reactivated: Bool?
+}
+
+struct CoachInviteActionResponse: Decodable {
+    let status: String
+    let invitationId: String?
+    let sentAt: String?
+    let expiresAt: String?
+    let inviteUrl: String?
+}
+
 struct Training: Codable, Identifiable {
     let id: String
     let date: String

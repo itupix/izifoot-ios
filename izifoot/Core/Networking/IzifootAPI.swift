@@ -183,7 +183,7 @@ final class IzifootAPI {
         try await client.get(APIRoutes.Clubs.coaches, responseType: [Coach].self)
     }
 
-    func createCoach(firstName: String, lastName: String, email: String, phone: String?, teamID: String) async throws {
+    func createCoach(firstName: String, lastName: String, email: String, phone: String?, teamID: String) async throws -> CoachInviteMutationResponse {
         struct CreateCoachPayload: Encodable {
             let role = "COACH"
             let firstName: String
@@ -201,7 +201,7 @@ final class IzifootAPI {
             let managed_team_ids: [String]
         }
 
-        _ = try await client.post(
+        return try await client.post(
             APIRoutes.Accounts.list,
             body: CreateCoachPayload(
                 firstName: firstName,
@@ -218,7 +218,17 @@ final class IzifootAPI {
                 managedTeamIds: [teamID],
                 managed_team_ids: [teamID]
             ),
-            responseType: EmptyResponse.self
+            responseType: CoachInviteMutationResponse.self
+        )
+    }
+
+    func inviteCoach(id: String) async throws -> CoachInviteActionResponse {
+        struct InviteCoachPayload: Encodable {}
+
+        return try await client.post(
+            "/coaches/\(id.urlEncoded)/invite",
+            body: InviteCoachPayload(),
+            responseType: CoachInviteActionResponse.self
         )
     }
 

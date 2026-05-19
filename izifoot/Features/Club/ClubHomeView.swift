@@ -1,5 +1,7 @@
 import Combine
+import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
 @MainActor
 final class ClubHomeViewModel: ObservableObject {
@@ -9,6 +11,9 @@ final class ClubHomeViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var mutatingCoachIDs = Set<String>()
     @Published private(set) var isSavingCoach = false
+    @Published private(set) var inviteURL: URL?
+    @Published private(set) var inviteTargetName: String?
+    @Published var isInviteSheetPresented = false
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
@@ -62,7 +67,7 @@ final class ClubHomeViewModel: ObservableObject {
         defer { isSavingCoach = false }
 
         do {
-            try await api.createCoach(
+            let response = try await api.createCoach(
                 firstName: trimmedFirstName,
                 lastName: trimmedLastName,
                 email: trimmedEmail,
@@ -70,6 +75,10 @@ final class ClubHomeViewModel: ObservableObject {
                 teamID: teamID
             )
             await load()
+            presentInviteIfAvailable(
+                response.inviteUrl,
+                coachName: [trimmedFirstName, trimmedLastName].filter { !$0.isEmpty }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            )
             return true
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -124,6 +133,19 @@ final class ClubHomeViewModel: ObservableObject {
         }
     }
 
+    func inviteCoach(_ coach: Coach) async {
+        mutatingCoachIDs.insert(coach.id)
+        defer { mutatingCoachIDs.remove(coach.id) }
+
+        do {
+            let response = try await api.inviteCoach(id: coach.id)
+            await load()
+            presentInviteIfAvailable(response.inviteUrl, coachName: coach.displayName)
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+        }
+    }
+
     private func updateCoachTeams(id: String, managedTeamIDs: [String]) async {
         mutatingCoachIDs.insert(id)
         defer { mutatingCoachIDs.remove(id) }
@@ -133,6 +155,18 @@ final class ClubHomeViewModel: ObservableObject {
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func presentInviteIfAvailable(_ inviteURLString: String?, coachName: String) {
+        guard let inviteURLString,
+              !inviteURLString.isEmpty,
+              let url = URL(string: inviteURLString) else {
+            return
+        }
+
+        inviteURL = url
+        inviteTargetName = coachName.isEmpty ? "le coach" : coachName
+        isInviteSheetPresented = true
     }
 }
 
@@ -258,6 +292,13 @@ struct ClubHomeView: View {
                                         .font(.caption)
                                         .foregroundStyle(.blue)
                                 }
+                                if coach.invitationStatus?.uppercased() != "ACCEPTED" {
+                                    Button(viewModel.mutatingCoachIDs.contains(coach.id) ? "Envoi…" : coachInviteButtonTitle(for: coach)) {
+                                        Task { await viewModel.inviteCoach(coach) }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(viewModel.mutatingCoachIDs.contains(coach.id))
+                                }
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button("Supprimer", role: .destructive) {
@@ -313,6 +354,11 @@ struct ClubHomeView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $viewModel.isInviteSheetPresented) {
+                if let url = viewModel.inviteURL {
+                    InviteCoachSheet(url: url, coachName: viewModel.inviteTargetName ?? "le coach")
+                }
+            }
             .confirmationDialog(
                 "Supprimer ce coach du club ?",
                 isPresented: Binding(
@@ -346,6 +392,10 @@ struct ClubHomeView: View {
             }
         }
     }
+}
+
+private func coachInviteButtonTitle(for coach: Coach) -> String {
+    coach.invitationStatus?.uppercased() == "PENDING" ? "Renvoyer l'invitation" : "Inviter"
 }
 
 struct RenameClubSheet: View {
@@ -505,5 +555,68 @@ struct AddCoachSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct InviteCoachSheet: View {
+    let url: URL
+    let coachName: String
+
+    private let context = CIContext()
+    private let filter = CIFilter.qrCodeGenerator()
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("Partagez ce QR code ou ce lien avec \(coachName) pour finaliser le compte.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    if let image = qrImage {
+                        Image(uiImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 280)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color(.systemBackground))
+                                    .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
+                            )
+                    }
+
+                    Text(url.absoluteString)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+
+                    ShareLink(item: url) {
+                        Label("Partager le lien", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            }
+            .navigationTitle("Invitation")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var qrImage: UIImage? {
+        filter.message = Data(url.absoluteString.utf8)
+        guard let output = filter.outputImage else { return nil }
+        let transformed = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }

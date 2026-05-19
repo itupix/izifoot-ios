@@ -17,7 +17,7 @@
 Included
 - Club fetch and rename.
 - Team list and team creation.
-- Coach list display and deletion.
+- Coach list display, invitation share sheet, resend, and deletion.
 - Coach assignment and removal from team cards.
 
 Excluded
@@ -58,7 +58,7 @@ Restrictions: backend role/scope checks.
 - API: clubs, teams, and coaches endpoints.
 
 ## 6. User Flows
-- Main flow: open club home -> inspect teams -> assign or remove coaches directly inside a team -> manage the coach directory.
+- Main flow: open club home -> inspect teams -> add or resend a coach invitation -> open the share sheet with the link and QR -> assign or remove coaches directly inside a team -> manage the coach directory.
 - Variants: add a coach from iOS; rename or create team.
 - Back navigation: return to previous tab.
 - Interruptions: update/create errors.
@@ -67,7 +67,7 @@ Restrictions: backend role/scope checks.
 
 ## 7. Functional Behavior
 - UI behavior: sectioned lists for club, teams, and coaches with inline coach actions per team.
-- Actions: mutate club name, team list, coach list, and coach-team assignments.
+- Actions: mutate club name, team list, coach list, coach invitations, and coach-team assignments.
 - States: loading, ready, mutating, error.
 - Conditions: direction role.
 - Validations: required text inputs.
@@ -85,6 +85,7 @@ Constraints: backend validations.
 - Only direction can mutate club/team settings.
 - Team creation requires category and format.
 - Coach list derived from users and invitation context.
+- Coach creation and resend can immediately open a share sheet with the invitation link and QR.
 - Team rows are the primary coach-assignment surface.
 - The team scope picker is hidden on `Mon club` to avoid conflicting with cross-team administration.
 
@@ -97,7 +98,7 @@ Constraints: backend validations.
 - Club info card.
 - Rename and create-team sheets.
 - Team list with coach chips and assignment menu.
-- Coach list with deletion.
+- Coach list with resend/delete actions.
 - Add-coach sheet.
 
 ## 12. Routes / API / Handlers
@@ -137,7 +138,7 @@ Constraints: backend validations.
 - Inferred
 - Parity work is planned.
 - Missing
-- Full account invitation management UI outside coach creation.
+- Full coach-detail parity with the web route.
 - Tech debt
 - Potential drift with web admin capabilities.
 
