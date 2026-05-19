@@ -17,10 +17,11 @@
 Included
 - Club fetch and rename.
 - Team list and team creation.
-- Coach list display.
+- Coach list display and deletion.
+- Coach assignment and removal from team cards.
 
 Excluded
-- Full account invitation workflow parity with web.
+- Full coach-detail parity with the web detail route.
 
 ## 4. Actors
 - Admin
@@ -57,16 +58,16 @@ Restrictions: backend role/scope checks.
 - API: clubs, teams, and coaches endpoints.
 
 ## 6. User Flows
-- Main flow: open club home -> inspect data -> rename or create team.
-- Variants: switch active team through scope picker.
+- Main flow: open club home -> inspect teams -> assign or remove coaches directly inside a team -> manage the coach directory.
+- Variants: add a coach from iOS; rename or create team.
 - Back navigation: return to previous tab.
 - Interruptions: update/create errors.
 - Errors: alert-based feedback.
 - Edge cases: club with no teams/coaches.
 
 ## 7. Functional Behavior
-- UI behavior: sectioned cards/lists for club, teams, coaches.
-- Actions: mutate club name and team list.
+- UI behavior: sectioned lists for club, teams, and coaches with inline coach actions per team.
+- Actions: mutate club name, team list, coach list, and coach-team assignments.
 - States: loading, ready, mutating, error.
 - Conditions: direction role.
 - Validations: required text inputs.
@@ -74,7 +75,7 @@ Restrictions: backend role/scope checks.
 - Automations: none.
 
 ## 8. Data Model
-- `Club`, `Team`, `Coach`.
+- `Club`, `Team`, `Coach`, `CoachManagedTeam`.
 Source: corresponding endpoints.
 Purpose: admin display and mutation.
 Format: codable structs.
@@ -84,6 +85,8 @@ Constraints: backend validations.
 - Only direction can mutate club/team settings.
 - Team creation requires category and format.
 - Coach list derived from users and invitation context.
+- Team rows are the primary coach-assignment surface.
+- The team scope picker is hidden on `Mon club` to avoid conflicting with cross-team administration.
 
 ## 10. State Machine
 - Screen states: loading/ready/error.
@@ -93,11 +96,13 @@ Constraints: backend validations.
 ## 11. UI Components
 - Club info card.
 - Rename and create-team sheets.
-- Team and coach lists.
+- Team list with coach chips and assignment menu.
+- Coach list with deletion.
+- Add-coach sheet.
 
 ## 12. Routes / API / Handlers
 - Native handlers in `ClubHomeView`.
-- API: `/clubs/me`, `/clubs/me/coaches`, `/teams`.
+- API: `/clubs/me`, `/clubs/me/coaches`, `/coaches/:id`, `/coaches/:id/teams`, `/teams`, `/accounts`.
 
 ## 13. Persistence
 - Client: local state for fetched lists and forms.
@@ -106,7 +111,7 @@ Constraints: backend validations.
 ## 14. Dependencies
 - Upstream: auth role and scope context.
 - Downstream: planning/player modules depend on team structure.
-- Cross-repo: web admin feature has broader invitation coverage.
+- Cross-repo: web admin feature remains broader, but iOS now shares the same coach assignment contract.
 
 ## 15. Error Handling
 - Validation: local checks for empty fields.
@@ -122,37 +127,38 @@ Constraints: backend validations.
 
 ## 17. UX Requirements
 - Feedback: clear save and failure messages.
-- Empty states: no teams/no coaches.
+- Empty states: no teams/no coaches/no assigned coach on a team.
 - Loading: progress indicator.
 - Responsive: native sheet UX.
 
 ## 18. Ambiguities & Gaps
 - Observed
-- iOS club feature currently narrower than web (invitations).
+- iOS club feature still narrower than web for rich coach details.
 - Inferred
 - Parity work is planned.
 - Missing
-- Account invitation management UI.
+- Full account invitation management UI outside coach creation.
 - Tech debt
 - Potential drift with web admin capabilities.
 
 ## 19. Recommendations
 - Product: align minimum admin capabilities across clients.
-- UX: add invitation list/create flow on iOS.
+- UX: keep coach assignment anchored to team rows and avoid restoring the club-level team picker.
 - Tech: share admin domain contracts in one spec.
 - Security: audit admin actions for mutation traceability.
 
 ## 20. Acceptance Criteria
 1. Direction can view and update club basics.
 2. Direction can create team from iOS.
-3. Non-direction users cannot access club admin actions.
-4. Error states are surfaced cleanly.
+3. Direction can add, assign, unassign, and delete coaches from iOS.
+4. Non-direction users cannot access club admin actions.
+5. Error states are surfaced cleanly.
 
 ## 21. Test Scenarios
-- Happy path: rename club and create team.
+- Happy path: rename club, create team, add coach, assign the coach to another team, then remove one assignment.
 - Permissions: coach blocked from club admin.
 - Errors: duplicate team name.
-- Edge cases: empty club without teams.
+- Edge cases: empty club without teams; deleting a pending coach; removing the last team from a coach.
 
 ## 22. Technical References
 - `izifoot/Features/Club/ClubHomeView.swift`

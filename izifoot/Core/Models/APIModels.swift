@@ -334,12 +334,95 @@ struct PaginatedResponse<T: Decodable>: Decodable {
     }
 }
 
-struct Coach: Codable, Identifiable {
+struct CoachManagedTeam: Decodable, Identifiable {
+    let id: String
+    let name: String
+}
+
+struct Coach: Decodable, Identifiable {
     let id: String
     let email: String?
     let firstName: String?
     let lastName: String?
-    let managedTeamIds: [String]?
+    let phone: String?
+    let teamId: String?
+    let teamName: String?
+    let managedTeamIds: [String]
+    let managedTeams: [CoachManagedTeam]
+    let invitationStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case firstName
+        case first_name
+        case prenom
+        case lastName
+        case last_name
+        case nom
+        case phone
+        case telephone
+        case teamId
+        case team_id
+        case teamName
+        case team_name
+        case managedTeamIds
+        case managed_team_ids
+        case managedTeams
+        case invitationStatus
+        case status
+        case name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        email = try? container.decodeIfPresent(String.self, forKey: .email)
+        firstName = try? container.decodeIfPresent(String.self, forKey: .firstName)
+            ?? container.decodeIfPresent(String.self, forKey: .first_name)
+            ?? container.decodeIfPresent(String.self, forKey: .prenom)
+        lastName = try? container.decodeIfPresent(String.self, forKey: .lastName)
+            ?? container.decodeIfPresent(String.self, forKey: .last_name)
+            ?? container.decodeIfPresent(String.self, forKey: .nom)
+        phone = try? container.decodeIfPresent(String.self, forKey: .phone)
+            ?? container.decodeIfPresent(String.self, forKey: .telephone)
+        teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+            ?? container.decodeIfPresent(String.self, forKey: .team_id)
+        teamName = try? container.decodeIfPresent(String.self, forKey: .teamName)
+            ?? container.decodeIfPresent(String.self, forKey: .team_name)
+        managedTeamIds = (try? container.decodeIfPresent([String].self, forKey: .managedTeamIds))
+            ?? (try? container.decodeIfPresent([String].self, forKey: .managed_team_ids))
+            ?? []
+        managedTeams = (try? container.decodeIfPresent([CoachManagedTeam].self, forKey: .managedTeams)) ?? []
+        invitationStatus = (try? container.decodeIfPresent(String.self, forKey: .invitationStatus))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .status))
+    }
+
+    var displayName: String {
+        let fullName = [firstName, lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return fullName.isEmpty ? (email ?? "Coach") : fullName
+    }
+
+    var managedTeamsLabel: String {
+        let names = managedTeams.map(\.name).filter { !$0.isEmpty }
+        return names.isEmpty ? "Non affecté" : names.joined(separator: ", ")
+    }
+
+    var invitationStatusLabel: String? {
+        switch invitationStatus?.uppercased() {
+        case "PENDING":
+            return "Invitation en attente"
+        case "EXPIRED":
+            return "Invitation expirée"
+        case "CANCELLED":
+            return "Invitation annulée"
+        default:
+            return nil
+        }
+    }
 }
 
 struct Player: Decodable, Identifiable {

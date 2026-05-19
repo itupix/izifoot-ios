@@ -183,6 +183,65 @@ final class IzifootAPI {
         try await client.get(APIRoutes.Clubs.coaches, responseType: [Coach].self)
     }
 
+    func createCoach(firstName: String, lastName: String, email: String, phone: String?, teamID: String) async throws {
+        struct CreateCoachPayload: Encodable {
+            let role = "COACH"
+            let firstName: String
+            let first_name: String
+            let prenom: String
+            let lastName: String
+            let last_name: String
+            let nom: String
+            let email: String
+            let phone: String?
+            let telephone: String?
+            let teamId: String
+            let team_id: String
+            let managedTeamIds: [String]
+            let managed_team_ids: [String]
+        }
+
+        _ = try await client.post(
+            APIRoutes.Accounts.list,
+            body: CreateCoachPayload(
+                firstName: firstName,
+                first_name: firstName,
+                prenom: firstName,
+                lastName: lastName,
+                last_name: lastName,
+                nom: lastName,
+                email: email,
+                phone: phone,
+                telephone: phone,
+                teamId: teamID,
+                team_id: teamID,
+                managedTeamIds: [teamID],
+                managed_team_ids: [teamID]
+            ),
+            responseType: EmptyResponse.self
+        )
+    }
+
+    func updateCoachTeams(id: String, managedTeamIDs: [String]) async throws {
+        struct CoachTeamsPayload: Encodable {
+            let managedTeamIds: [String]
+            let managed_team_ids: [String]
+        }
+
+        _ = try await client.put(
+            APIRoutes.Coaches.teams(id),
+            body: CoachTeamsPayload(
+                managedTeamIds: managedTeamIDs,
+                managed_team_ids: managedTeamIDs
+            ),
+            responseType: EmptyResponse.self
+        )
+    }
+
+    func deleteCoach(id: String) async throws {
+        _ = try await client.delete(APIRoutes.Coaches.byID(id), responseType: EmptyResponse.self)
+    }
+
     func players(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Player> {
         try await client.get(
             paginatedPath(APIRoutes.Players.list, limit: limit, offset: offset),

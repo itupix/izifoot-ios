@@ -20,6 +20,11 @@ enum APIRoutes {
         static let coaches = "/clubs/me/coaches"
     }
 
+    enum Coaches {
+        static func byID(_ id: String) -> String { "/coaches/\(id.urlEncoded)" }
+        static func teams(_ id: String) -> String { "/coaches/\(id.urlEncoded)/teams" }
+    }
+
     enum Teams {
         static let list = "/teams"
         static func byID(_ id: String) -> String { "/teams/\(id.urlEncoded)" }
