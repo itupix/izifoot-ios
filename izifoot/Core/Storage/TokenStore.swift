@@ -3,13 +3,15 @@ import Security
 
 protocol TokenStoreProtocol: AnyObject {
     var token: String? { get set }
+    var refreshToken: String? { get set }
     var cachedMe: Me? { get set }
 }
 
 final class TokenStore: TokenStoreProtocol {
     static let shared = TokenStore()
 
-    private let key = "izifoot.auth.token"
+    private let accessTokenKey = "izifoot.auth.token"
+    private let refreshTokenKey = "izifoot.auth.refresh-token"
     private let meKey = "izifoot.auth.me"
 
     var cachedMe: Me? {
@@ -28,14 +30,14 @@ final class TokenStore: TokenStoreProtocol {
 
     var token: String? {
         get {
-            if let item = readKeychainValue() {
+            if let item = readKeychainValue(for: accessTokenKey) {
                 return item
             }
 
             // Migrate legacy token storage from UserDefaults if present.
-            if let legacy = UserDefaults.standard.string(forKey: key), !legacy.isEmpty {
-                writeKeychainValue(legacy)
-                UserDefaults.standard.removeObject(forKey: key)
+            if let legacy = UserDefaults.standard.string(forKey: accessTokenKey), !legacy.isEmpty {
+                writeKeychainValue(legacy, for: accessTokenKey)
+                UserDefaults.standard.removeObject(forKey: accessTokenKey)
                 return legacy
             }
 
@@ -43,17 +45,30 @@ final class TokenStore: TokenStoreProtocol {
         }
         set {
             if let value = newValue, !value.isEmpty {
-                writeKeychainValue(value)
+                writeKeychainValue(value, for: accessTokenKey)
             } else {
-                deleteKeychainValue()
+                deleteKeychainValue(for: accessTokenKey)
             }
         }
     }
 
-    private func readKeychainValue() -> String? {
+    var refreshToken: String? {
+        get {
+            readKeychainValue(for: refreshTokenKey)
+        }
+        set {
+            if let value = newValue, !value.isEmpty {
+                writeKeychainValue(value, for: refreshTokenKey)
+            } else {
+                deleteKeychainValue(for: refreshTokenKey)
+            }
+        }
+    }
+
+    private func readKeychainValue(for service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: key,
+            kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -64,11 +79,11 @@ final class TokenStore: TokenStoreProtocol {
         return String(data: data, encoding: .utf8)
     }
 
-    private func writeKeychainValue(_ value: String) {
+    private func writeKeychainValue(_ value: String, for service: String) {
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: key,
+            kSecAttrService as String: service,
         ]
 
         let attributes: [String: Any] = [
@@ -83,10 +98,10 @@ final class TokenStore: TokenStoreProtocol {
         }
     }
 
-    private func deleteKeychainValue() {
+    private func deleteKeychainValue(for service: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: key,
+            kSecAttrService as String: service,
         ]
         SecItemDelete(query as CFDictionary)
     }

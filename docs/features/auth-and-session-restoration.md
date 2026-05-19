@@ -16,11 +16,12 @@
 ## 3. Scope
 Included
 - `AuthStore.swift` and `AuthView.swift`.
+- `AuthService.swift` with `ASWebAuthenticationSession`.
 - Root switching in `RootView.swift`.
 - Login/register/logout + refresh flow.
 
 Excluded
-- Invitation acceptance UI (not prominently implemented in iOS current flow).
+- Universal Links / Associated Domains are not active in the current delivery; callback uses the custom URL scheme `izifoot://`.
 
 ## 4. Actors
 - Admin
@@ -54,22 +55,22 @@ Restrictions: dependent on backend `/me` availability.
 
 ## 5. Entry Points
 - UI: `AuthView`, launch `RootView`.
-- API: auth endpoints via `IzifootAPI`.
+- API: auth endpoints via `IzifootAPI`, including mobile exchange.
 - System triggers: app startup session restoration.
 
 ## 6. User Flows
 - Main flow: open app -> restore session -> show shell or auth.
-- Variants: register then auto-load profile.
+- Mobile flow: tap `Se connecter` -> `ASWebAuthenticationSession` -> web login page -> `izifoot://auth/callback?code&state` -> `/auth/mobile/exchange` -> `/me`.
 - Back navigation: logout returns to auth screen.
 - Interruptions: token invalidated server-side.
-- Errors: auth errors shown in alert context.
+- Errors: user cancellation is neutral, network/exchange/token failures are surfaced as auth errors.
 - Edge cases: network unavailable during restore.
 
 ## 7. Functional Behavior
-- UI behavior: blocking loader while restoring session.
-- Actions: login/register/logout and `me` refresh.
+- UI behavior: blocking loader while restoring session; web-auth progress during exchange.
+- Actions: web sign-in, logout and `me` refresh.
 - States: restoring, authenticated, unauthenticated, error.
-- Conditions: credentials validity and backend availability.
+- Conditions: valid callback `code/state`, backend availability, valid token exchange.
 - Validations: local form checks + backend responses.
 - Blocking rules: main shell not shown until auth resolved.
 - Automations: restore attempt on startup.
@@ -80,25 +81,32 @@ Source: `/me` response.
 Purpose: role-based UI and scope.
 Format: Codable with alias decoding.
 Constraints: role enum and optional scope fields.
+- Keychain tokens
+Source: `/auth/mobile/exchange`.
+Purpose: authenticated API access after web sign-in.
+Format: access token + optional refresh token.
+Constraints: stored in Keychain only.
 
 ## 9. Business Rules
 - `AuthStore` is single source for auth state.
 - Successful auth always followed by `/me` refresh.
+- Web auth never stores tokens in callback URLs; only `code + state` traverse the custom scheme.
 - Logout clears session and returns to auth route.
 
 ## 10. State Machine
 - `RESTORING` -> `AUTHENTICATED` or `UNAUTHENTICATED`.
 - `UNAUTHENTICATED` -> `AUTHENTICATING` -> `AUTHENTICATED`.
+- `AUTHENTICATING` includes the web callback exchange step before shell access.
 - Invalid transitions: shell render without valid `me` when restore pending.
 
 ## 11. UI Components
-- Auth forms.
+- Auth CTA screen.
 - Root loading view.
 - Logout actions in account/chrome contexts.
 
 ## 12. Routes / API / Handlers
 - Native handlers: `AuthStore` methods.
-- API: `/auth/login`, `/auth/register`, `/auth/logout`, `/me`.
+- API: `/auth/mobile/exchange`, `/auth/logout`, `/me`.
 
 ## 13. Persistence
 - Token persistence in `TokenStore`/`AppSession`.
@@ -120,6 +128,7 @@ Constraints: role enum and optional scope fields.
 - Access control: authenticated shell only.
 - Data exposure: auth data retained in secure local storage abstractions.
 - Guest rules: no protected content.
+- Callback: custom URL scheme `izifoot://` must be declared in the app bundle.
 
 ## 17. UX Requirements
 - Feedback: clear loading and error states.
@@ -129,11 +138,11 @@ Constraints: role enum and optional scope fields.
 
 ## 18. Ambiguities & Gaps
 - Observed
-- Invite acceptance is less explicit in current iOS flow than on web.
+- Web remains the source of truth for sign-in and account creation.
 - Inferred
 - iOS onboarding parity is still evolving.
 - Missing
-- Dedicated invite-accept deep-link screen in current feature set.
+- Universal Links / Associated Domains if the project later migrates away from the custom URL scheme.
 - Tech debt
 - Error handling mostly message-based, not typed.
 
@@ -144,19 +153,21 @@ Constraints: role enum and optional scope fields.
 - Security: review token storage hardening and expiry refresh strategy.
 
 ## 20. Acceptance Criteria
-1. App restores existing session on launch.
-2. Login/register transitions to shell on success.
-3. Logout returns to auth view.
-4. Failed auth requests display error without crash.
+1. App restores an existing Bearer session on launch.
+2. `Se connecter` opens the web auth flow and returns through `izifoot://`.
+3. Successful exchange stores the token in Keychain and transitions to shell.
+4. Logout returns to auth view and clears Keychain credentials.
+5. Failed auth requests display an error without crash.
 
 ## 21. Test Scenarios
-- Happy path: login then relaunch app with restored session.
+- Happy path: web sign-in then relaunch app with restored session.
 - Permissions: unauthenticated user cannot reach shell tabs.
-- Errors: invalid credentials.
+- Errors: user cancellation, missing code, exchange rejection, invalid token.
 - Edge cases: token expired during restore.
 
 ## 22. Technical References
 - `izifoot/Features/Auth/AuthStore.swift`
+- `izifoot/Features/Auth/AuthService.swift`
 - `izifoot/Features/Auth/AuthView.swift`
 - `izifoot/Features/Shell/RootView.swift`
 - `izifoot/Core/Networking/IzifootAPI.swift`

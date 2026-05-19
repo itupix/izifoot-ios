@@ -1,137 +1,80 @@
 import SwiftUI
 
 struct AuthView: View {
-    enum Mode: String, CaseIterable, Identifiable {
-        case login = "Connexion"
-        case register = "Inscription"
-        var id: String { rawValue }
-    }
-
     @EnvironmentObject private var authStore: AuthStore
-
-    @State private var mode: Mode = .login
-    @State private var email = ""
-    @State private var password = ""
-    @State private var clubName = ""
-    @FocusState private var focusedField: Field?
-
-    private enum Field {
-        case email
-        case password
-        case clubName
-    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(Mode.allCases) { currentMode in
-                            Text(currentMode.rawValue).tag(currentMode)
-                        }
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.96, green: 0.98, blue: 1.0),
+                        Color(red: 0.92, green: 0.95, blue: 1.0),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    VStack(spacing: 12) {
+                        Image("LogoHeader")
+                            .resizable()
+                            .renderingMode(.original)
+                            .scaledToFit()
+                            .frame(width: 210)
+
+                        Text("Connectez-vous avec izifoot.fr")
+                            .font(.title3.weight(.bold))
+                            .multilineTextAlignment(.center)
+
+                        Text("L’app ouvre la page web sécurisée, récupère un code temporaire, puis termine la connexion localement.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    .pickerStyle(.segmented)
 
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Identifiants")
-                            .font(.headline)
-
-                        TextField("Email", text: $email)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.emailAddress)
-                            .autocorrectionDisabled(true)
-                            .submitLabel(.next)
-                            .focused($focusedField, equals: .email)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .onSubmit {
-                                focusedField = .password
+                    VStack(spacing: 14) {
+                        Button {
+                            Task {
+                                await authStore.signInWithWeb()
                             }
-
-                        SecureField("Mot de passe", text: $password)
-                            .submitLabel(mode == .register ? .next : .go)
-                            .focused($focusedField, equals: .password)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .onSubmit {
-                                if mode == .register {
-                                    focusedField = .clubName
-                                } else {
-                                    submit()
+                        } label: {
+                            if authStore.isAuthenticating {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                    Text("Connexion en cours…")
                                 }
+                                .frame(maxWidth: .infinity)
+                            } else {
+                                Text("Se connecter")
+                                    .frame(maxWidth: .infinity)
                             }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if mode == .register {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Club")
-                                .font(.headline)
-
-                            TextField("Nom du club", text: $clubName)
-                                .submitLabel(.go)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .focused($focusedField, equals: .clubName)
-                                .onSubmit {
-                                    submit()
-                                }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(authStore.isAuthenticating)
+
+                        Text("La création de compte et l’authentification passent par le site web izifoot pour garantir le même parcours que sur le web.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
 
-                    Button {
-                        submit()
-                    } label: {
-                        if authStore.isAuthenticating {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text(mode == .login ? "Se connecter" : "Créer le compte")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!canSubmit)
-
-                    if let errorMessage = authStore.errorMessage {
+                    if let errorMessage = authStore.errorMessage, !errorMessage.isEmpty {
                         Text(errorMessage)
+                            .font(.footnote)
                             .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
                 }
+                .padding(24)
+                .frame(maxWidth: 420)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .padding(20)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("izifoot")
-        }
-    }
-
-    private var canSubmit: Bool {
-        if mode == .register {
-            return !email.isEmpty && !password.isEmpty && !clubName.isEmpty && !authStore.isAuthenticating
-        }
-        return !email.isEmpty && !password.isEmpty && !authStore.isAuthenticating
-    }
-
-    private func submit() {
-        guard canSubmit else { return }
-        focusedField = nil
-        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = password
-        let clubName = clubName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        Task {
-            if mode == .login {
-                await authStore.login(email: email, password: password)
-            } else {
-                await authStore.register(email: email, password: password, clubName: clubName)
-            }
         }
     }
 }

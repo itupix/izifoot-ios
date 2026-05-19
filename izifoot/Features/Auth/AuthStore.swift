@@ -10,11 +10,13 @@ final class AuthStore: ObservableObject {
 
     private let api: IzifootAPI
     private let tokenStore: TokenStoreProtocol
+    private let authService: AuthService
     private var cancellables = Set<AnyCancellable>()
 
     init(api: IzifootAPI = IzifootAPI(), tokenStore: TokenStoreProtocol = TokenStore.shared) {
         self.api = api
         self.tokenStore = tokenStore
+        self.authService = AuthService(api: api, tokenStore: tokenStore)
         self.me = tokenStore.cachedMe
         subscribeToSessionExpiry()
     }
@@ -90,8 +92,7 @@ final class AuthStore: ObservableObject {
         guard tokenStore.token != nil else { return }
         do {
             let refreshedMe = try await api.me()
-            me = refreshedMe
-            tokenStore.cachedMe = refreshedMe
+            applyMe(refreshedMe)
         } catch {
             if case APIError.unauthorized = error {
                 clearSession()
@@ -114,6 +115,28 @@ final class AuthStore: ObservableObject {
         clearSession()
     }
 
+    func signInWithWeb() async {
+        isAuthenticating = true
+        errorMessage = nil
+        defer { isAuthenticating = false }
+
+        do {
+            let me = try await authService.signInWithWeb()
+            applyMe(me)
+        } catch let authError as AuthServiceError {
+            if case .userCancelled = authError {
+                return
+            }
+            if let description = authError.errorDescription, !description.isEmpty {
+                errorMessage = description
+            }
+        } catch {
+            if !error.isCancellationError {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func subscribeToSessionExpiry() {
         NotificationCenter.default.publisher(for: .sessionDidExpire)
             .receive(on: DispatchQueue.main)
@@ -123,8 +146,14 @@ final class AuthStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func applyMe(_ updatedMe: Me) {
+        me = updatedMe
+        tokenStore.cachedMe = updatedMe
+    }
+
     private func clearSession() {
         tokenStore.token = nil
+        tokenStore.refreshToken = nil
         tokenStore.cachedMe = nil
         AppSession.shared.activeTeamID = nil
         me = nil

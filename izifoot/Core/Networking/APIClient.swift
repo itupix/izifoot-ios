@@ -120,6 +120,7 @@ final class APIClient: APIClientProtocol {
             guard 200 ... 299 ~= httpResponse.statusCode else {
                 if httpResponse.statusCode == 401 {
                     tokenStore.token = nil
+                    tokenStore.refreshToken = nil
                     tokenStore.cachedMe = nil
                     AppSession.shared.activeTeamID = nil
                     NotificationCenter.default.post(name: .sessionDidExpire, object: nil)
