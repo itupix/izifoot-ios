@@ -11,13 +11,13 @@
 - Why it exists: Coaches need roster access during sessions and travel.
 - Target users: admin/coach.
 - Context of use: players tab.
-- Expected outcome: accurate player records and invite status insight.
+- Expected outcome: accurate player records, adult invite status insight, and parent-by-parent invitation control for child accounts.
 
 ## 3. Scope
 Included
 - `PlayersHomeView.swift` and `PlayerDetailView.swift`.
 - Player list/create/edit/delete.
-- Invite and parent-link management actions.
+- Invite, per-parent resend, and parent-link management actions.
 
 Excluded
 - Public/player-portal access flows.
@@ -57,8 +57,8 @@ Restrictions: dependent on multi-endpoint calls.
 - API: players endpoints, invitation status/invite, parent delete, aggregate endpoints.
 
 ## 6. User Flows
-- Main flow: open players list -> quick-create player with first name only -> open detail -> review club/team context -> edit identity/contact/sport/licence/date-of-birth fields if needed -> if authorized reassign the player to another team -> add/invite a parent account from the `Parents` or `Invitation compte` section when the player is a child -> complete invite prerequisites if needed -> invite.
-- Variants: send invite or remove parent link.
+- Main flow: open players list -> quick-create player with first name only -> open detail -> review club/team context -> edit identity/contact/sport/licence/date-of-birth fields if needed -> if authorized reassign the player to another team -> add/invite a parent account from the `Parents` section when the player is a child -> resend per-parent when needed -> complete invite prerequisites if needed -> invite.
+- Variants: send invite, resend per-parent invitation, or remove parent link.
 - Back navigation: detail back to list.
 - Interruptions: invite action errors.
 - Errors: validation or scope failures.
@@ -66,7 +66,7 @@ Restrictions: dependent on multi-endpoint calls.
 
 ## 7. Functional Behavior
 - UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, visible club/team context, conditional team reassignment when several writable teams exist, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
-- Actions: CRUD plus invite operations.
+- Actions: CRUD plus adult invite operations and per-parent invite/resend actions for child accounts.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
 - Validations: quick-add only requires first name; adult invite requires last name, email, and phone and surfaces a completion sheet before invitation.
@@ -81,7 +81,7 @@ Format: Codable with alternate key decoding.
 Constraints: backend role/scope and field constraints.
 
 ## 9. Business Rules
-- Invite status endpoint queried per-player detail.
+- Adult invite status endpoint queried per-player detail; child invite state is rendered per parent contact from the player payload.
 - Parent deletion uses dedicated endpoint and refreshes player data.
 - Adult invite flow stays separate from quick-create and requires explicit profile completion on detail.
 - Player list is paginated.
@@ -149,7 +149,7 @@ Constraints: backend role/scope and field constraints.
 1. Admin/coach can quick-create a player with first name only on iOS.
 2. Admin/coach can see the player club and team on detail.
 3. Admin/coach can edit player identity, date of birth, licence, sport, contact fields, and team assignment from player detail when several writable teams exist.
-4. Invite and parent unlink actions function correctly.
+4. Adult invite, per-parent resend, and parent unlink actions function correctly.
 5. Unauthorized roles cannot access players tab.
 6. Failure states are visible without app crash.
 

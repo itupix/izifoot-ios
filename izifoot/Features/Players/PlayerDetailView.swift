@@ -16,6 +16,19 @@ fileprivate enum PlayerInvitationStatusValue: String {
     }
 }
 
+fileprivate enum ParentInvitationStatusValue: String {
+    case none = "NONE"
+    case pending = "PENDING"
+    case accepted = "ACCEPTED"
+    case expired = "EXPIRED"
+    case cancelled = "CANCELLED"
+
+    static func fromAPI(_ raw: String?) -> ParentInvitationStatusValue {
+        guard let raw else { return .none }
+        return ParentInvitationStatusValue(rawValue: raw.uppercased()) ?? .none
+    }
+}
+
 @MainActor
 final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
@@ -50,20 +63,28 @@ final class PlayerDetailViewModel: ObservableObject {
 
         do {
             player = try await api.player(id: id)
-            await refreshInvitationStatus(id: id)
+            if player?.isChild == true {
+                invitationStatus = .none
+            } else {
+                await refreshInvitationStatus(id: id)
+            }
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
-    func invitePlayer(id: String, email: String? = nil, phone: String? = nil) async {
+    func invitePlayer(id: String, email: String? = nil, phone: String? = nil, parentID: String? = nil) async {
         isInviting = true
         defer { isInviting = false }
 
         do {
-            let response = try await api.invitePlayer(id: id, email: email, phone: phone)
-            invitationStatus = .fromAPI(response.status)
+            let response = try await api.invitePlayer(id: id, email: email, phone: phone, parentID: parentID)
+            if player?.isChild == true {
+                player = try await api.player(id: id)
+            } else {
+                invitationStatus = .fromAPI(response.status)
+            }
             if let inviteUrl = response.inviteUrl, !inviteUrl.isEmpty, let url = URL(string: inviteUrl) {
                 inviteURL = url
                 isInviteSheetPresented = true
@@ -108,7 +129,11 @@ final class PlayerDetailViewModel: ObservableObject {
             if !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 AppSession.shared.activeTeamID = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            await refreshInvitationStatus(id: id)
+            if player?.isChild == true {
+                invitationStatus = .none
+            } else {
+                await refreshInvitationStatus(id: id)
+            }
             NotificationCenter.default.post(name: .playerDidUpdate, object: nil, userInfo: ["playerId": id])
             errorMessage = nil
             return true
@@ -236,6 +261,14 @@ struct PlayerDetailView: View {
                                     LabeledContent("Nom", value: displayValue(parent.lastName))
                                     LabeledContent("Email", value: displayValue(parent.email))
                                     LabeledContent("Téléphone", value: displayValue(parent.phone))
+                                    LabeledContent("Statut", value: parentInvitationStatusLabel(parent.status))
+                                    if parentInvitationState(parent) != .accepted {
+                                        Button(viewModel.isInviting ? "Envoi…" : parentInviteButtonTitle(parent)) {
+                                            inviteExistingParent(parent)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
+                                    }
                                 }
                                 .padding(.vertical, 4)
                             }
@@ -247,25 +280,25 @@ struct PlayerDetailView: View {
                     }
                 }
 
-                Section("Invitation compte") {
-                    LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
-                    let blockingFields = adultInviteBlockingFields(player)
-                    if !player.isChild, !blockingFields.isEmpty {
-                        Text("Complétez \(formattedFieldList(blockingFields)) avant d’envoyer l’invitation.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    if viewModel.invitationStatus != .accepted || player.isChild {
-                        Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
-                            if player.isChild {
-                                openParentInviteSheet()
-                            } else if !blockingFields.isEmpty {
-                                isAdultInvitePrerequisitesSheetPresented = true
-                            } else {
-                                Task { await viewModel.invitePlayer(id: playerID) }
-                            }
+                if !player.isChild {
+                    Section("Invitation compte") {
+                        LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
+                        let blockingFields = adultInviteBlockingFields(player)
+                        if !blockingFields.isEmpty {
+                            Text("Complétez \(formattedFieldList(blockingFields)) avant d’envoyer l’invitation.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
-                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
+                        if viewModel.invitationStatus != .accepted {
+                            Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
+                                if !blockingFields.isEmpty {
+                                    isAdultInvitePrerequisitesSheetPresented = true
+                                } else {
+                                    Task { await viewModel.invitePlayer(id: playerID) }
+                                }
+                            }
+                            .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
+                        }
                     }
                 }
             }
@@ -534,15 +567,52 @@ struct PlayerDetailView: View {
         isParentInviteSheetPresented = true
     }
 
-    private func inviteButtonTitle(for player: Player) -> String {
-        if !player.isChild, !adultInviteBlockingFields(player).isEmpty {
-            return "Compléter avant d'inviter"
+    private func parentInvitationState(_ parent: Player.ParentContact) -> ParentInvitationStatusValue {
+        ParentInvitationStatusValue.fromAPI(parent.status)
+    }
+
+    private func parentInvitationStatusLabel(_ status: String?) -> String {
+        switch ParentInvitationStatusValue.fromAPI(status) {
+        case .none:
+            return "Non invité"
+        case .pending:
+            return "Invitation en attente"
+        case .accepted:
+            return "Compte activé"
+        case .expired:
+            return "Invitation expirée"
+        case .cancelled:
+            return "Invitation annulée"
         }
-        if player.isChild {
-            if viewModel.invitationStatus == .pending {
-                return "Renvoyer l'invitation"
-            }
-            return player.parentContacts.isEmpty ? "Inviter un parent" : "Inviter un autre parent"
+    }
+
+    private func parentInviteButtonTitle(_ parent: Player.ParentContact) -> String {
+        parentInvitationState(parent) == .pending ? "Renvoyer l'invitation" : "Inviter ce parent"
+    }
+
+    private func inviteExistingParent(_ parent: Player.ParentContact) {
+        let email = normalizedValue(parent.email)
+        let phone = normalizedValue(parent.phone)
+        let parentID = normalizedValue(parent.parentId)
+
+        guard email != nil || phone != nil || parentID != nil else {
+            viewModel.errorMessage = "Coordonnée parent manquante pour renvoyer l'invitation."
+            return
+        }
+
+        Task {
+            await viewModel.invitePlayer(
+                id: playerID,
+                email: email,
+                phone: phone,
+                parentID: parentID
+            )
+        }
+    }
+
+    private func inviteButtonTitle(for player: Player) -> String {
+        if !adultInviteBlockingFields(player).isEmpty {
+            return "Compléter avant d'inviter"
         }
         return viewModel.invitationStatus == .pending ? "Renvoyer l'invitation" : "Inviter"
     }

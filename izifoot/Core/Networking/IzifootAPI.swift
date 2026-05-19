@@ -271,14 +271,15 @@ final class IzifootAPI {
         try await client.get(APIRoutes.Players.invitationStatus(id), responseType: PlayerInvitationStatusResponse.self)
     }
 
-    func invitePlayer(id: String, email: String? = nil, phone: String? = nil) async throws -> PlayerInviteResponse {
+    func invitePlayer(id: String, email: String? = nil, phone: String? = nil, parentID: String? = nil) async throws -> PlayerInviteResponse {
         struct InvitePayload: Encodable {
             let email: String?
             let phone: String?
+            let parentId: String?
         }
         return try await client.post(
             APIRoutes.Players.invite(id),
-            body: InvitePayload(email: email, phone: phone),
+            body: InvitePayload(email: email, phone: phone, parentId: parentID),
             responseType: PlayerInviteResponse.self
         )
     }
