@@ -6,6 +6,9 @@ struct AccountView: View {
     @State private var lastName = ""
     @State private var email = ""
     @State private var phone = ""
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var passwordConfirmation = ""
     @State private var isSaving = false
     @State private var profileErrorMessage: String?
     @State private var linkedChild: LinkedChildProfile?
@@ -19,13 +22,6 @@ struct AccountView: View {
             List {
                 if let me = authStore.me {
                     Section("Moi") {
-                        HStack {
-                            Spacer()
-                            Button("Modifier") {
-                                isEditSheetPresented = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
                         LabeledContent("Prénom", value: displayValue(me.firstName))
                         LabeledContent("Nom", value: displayValue(me.lastName))
                         LabeledContent("Email", value: me.email)
@@ -69,24 +65,34 @@ struct AccountView: View {
                 }
             }
             .navigationTitle("Mon compte")
+            .toolbar {
+                if let me = authStore.me {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Modifier") {
+                            populateDraft(from: me)
+                            resetPasswordDraft()
+                            isEditSheetPresented = true
+                        }
+                    }
+                }
+            }
             .task(id: authStore.me?.id) {
                 guard let me = authStore.me else { return }
-                firstName = me.firstName ?? ""
-                lastName = me.lastName ?? ""
-                email = me.email
-                phone = me.phone ?? ""
+                populateDraft(from: me)
                 await loadTeamsAndChild(for: me)
             }
             .refreshable {
                 await authStore.refreshMe()
                 guard let me = authStore.me else { return }
-                firstName = me.firstName ?? ""
-                lastName = me.lastName ?? ""
-                email = me.email
-                phone = me.phone ?? ""
+                populateDraft(from: me)
                 await loadTeamsAndChild(for: me)
             }
-            .sheet(isPresented: $isEditSheetPresented) {
+            .sheet(isPresented: $isEditSheetPresented, onDismiss: {
+                if let me = authStore.me {
+                    populateDraft(from: me)
+                }
+                resetPasswordDraft()
+            }) {
                 NavigationStack {
                     Form {
                         Section("Modifier mon profil") {
@@ -101,6 +107,16 @@ struct AccountView: View {
                             TextField("Téléphone", text: $phone)
                                 .keyboardType(.phonePad)
                         }
+
+                        Section {
+                            SecureField("Mot de passe actuel", text: $currentPassword)
+                            SecureField("Nouveau mot de passe", text: $newPassword)
+                            SecureField("Confirmer le nouveau mot de passe", text: $passwordConfirmation)
+                        } header: {
+                            Text("Changer mon mot de passe")
+                        } footer: {
+                            Text("Laissez ces champs vides si vous ne souhaitez pas modifier votre mot de passe.")
+                        }
                     }
                     .navigationTitle("Modifier")
                     .toolbar {
@@ -113,6 +129,7 @@ struct AccountView: View {
                             Button(isSaving ? "Enregistrement…" : "Enregistrer") {
                                 Task {
                                     if await saveProfile() {
+                                        resetPasswordDraft()
                                         isEditSheetPresented = false
                                     }
                                 }
@@ -128,7 +145,7 @@ struct AccountView: View {
                     }
                 }
             }
-            .alert("Profil", isPresented: Binding(
+            .alert("Mon compte", isPresented: Binding(
                 get: { profileErrorMessage != nil },
                 set: { _ in profileErrorMessage = nil }
             )) {
@@ -172,6 +189,19 @@ struct AccountView: View {
         return value
     }
 
+    private func populateDraft(from me: Me) {
+        firstName = me.firstName ?? ""
+        lastName = me.lastName ?? ""
+        email = me.email
+        phone = me.phone ?? ""
+    }
+
+    private func resetPasswordDraft() {
+        currentPassword = ""
+        newPassword = ""
+        passwordConfirmation = ""
+    }
+
     @discardableResult
     private func saveProfile() async -> Bool {
         isSaving = true
@@ -187,15 +217,59 @@ struct AccountView: View {
             return false
         }
 
+        let wantsPasswordChange = !currentPassword.isEmpty || !newPassword.isEmpty || !passwordConfirmation.isEmpty
+        if wantsPasswordChange {
+            guard !currentPassword.isEmpty, !newPassword.isEmpty, !passwordConfirmation.isEmpty else {
+                profileErrorMessage = "Pour changer votre mot de passe, renseignez le mot de passe actuel, le nouveau et sa confirmation."
+                return false
+            }
+            guard newPassword.count >= 6 else {
+                profileErrorMessage = "Le nouveau mot de passe doit contenir au moins 6 caracteres."
+                return false
+            }
+            guard newPassword == passwordConfirmation else {
+                profileErrorMessage = "La confirmation du nouveau mot de passe ne correspond pas."
+                return false
+            }
+            guard currentPassword != newPassword else {
+                profileErrorMessage = "Le nouveau mot de passe doit etre different du mot de passe actuel."
+                return false
+            }
+        }
+
+        let currentMe = authStore.me
+        let hasProfileChanges =
+            normalizedFirstName != ((currentMe?.firstName ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            || normalizedLastName != ((currentMe?.lastName ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            || normalizedEmail != currentMe?.email
+            || (normalizedPhone.isEmpty ? nil : normalizedPhone) != currentMe?.phone
+
         do {
-            _ = try await api.updateMeProfile(
-                firstName: normalizedFirstName,
-                lastName: normalizedLastName,
-                email: normalizedEmail.isEmpty ? nil : normalizedEmail,
-                phone: normalizedPhone.isEmpty ? nil : normalizedPhone
-            )
-            await authStore.refreshMe()
-            profileErrorMessage = "Profil mis à jour."
+            if hasProfileChanges {
+                let updatedMe = try await api.updateMeProfile(
+                    firstName: normalizedFirstName,
+                    lastName: normalizedLastName,
+                    email: normalizedEmail.isEmpty ? nil : normalizedEmail,
+                    phone: normalizedPhone.isEmpty ? nil : normalizedPhone
+                )
+                authStore.applyMe(updatedMe)
+                populateDraft(from: updatedMe)
+                await loadTeamsAndChild(for: updatedMe)
+            }
+
+            if wantsPasswordChange {
+                do {
+                    try await api.updateMePassword(currentPassword: currentPassword, newPassword: newPassword)
+                } catch {
+                    if hasProfileChanges {
+                        profileErrorMessage = "Le profil a ete mis a jour, mais le mot de passe n a pas ete modifie: \(error.localizedDescription)"
+                    } else if !error.isCancellationError {
+                        profileErrorMessage = error.localizedDescription
+                    }
+                    return false
+                }
+            }
+
             return true
         } catch {
             if !error.isCancellationError { profileErrorMessage = error.localizedDescription }

@@ -123,6 +123,19 @@ final class IzifootAPI {
         )
     }
 
+    func updateMePassword(currentPassword: String, newPassword: String) async throws {
+        struct UpdatePasswordPayload: Encodable {
+            let currentPassword: String
+            let newPassword: String
+        }
+
+        _ = try await client.put(
+            APIRoutes.mePassword,
+            body: UpdatePasswordPayload(currentPassword: currentPassword, newPassword: newPassword),
+            responseType: EmptyResponse.self
+        )
+    }
+
     func registerPushToken(_ token: String, enabled: Bool = true) async throws {
         struct PushTokenPayload: Encodable {
             let token: String
@@ -177,6 +190,24 @@ final class IzifootAPI {
             body: CreateTeamPayload(name: name, category: category, format: format),
             responseType: Team.self
         )
+    }
+
+    func updateTeam(id: String, name: String, category: String, format: String) async throws -> Team {
+        struct UpdateTeamPayload: Encodable {
+            let name: String
+            let category: String
+            let format: String
+        }
+
+        return try await client.put(
+            APIRoutes.Teams.byID(id),
+            body: UpdateTeamPayload(name: name, category: category, format: format),
+            responseType: Team.self
+        )
+    }
+
+    func deleteTeam(id: String) async throws {
+        _ = try await client.delete(APIRoutes.Teams.byID(id), responseType: EmptyResponse.self)
     }
 
     func clubCoaches() async throws -> [Coach] {

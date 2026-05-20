@@ -11,6 +11,7 @@ enum APIRoutes {
 
     static let me = "/me"
     static let meProfile = "/me/profile"
+    static let mePassword = "/me/password"
     static let meChild = "/me/child"
     static let mePushToken = "/me/push-token"
     static let mePushBadgeReset = "/me/push-badge/reset"
