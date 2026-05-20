@@ -68,6 +68,7 @@ Restrictions: dependent on backend `/me` availability.
 
 ## 7. Functional Behavior
 - UI behavior: blocking loader while restoring session; web-auth progress during exchange.
+- Auth screen styling mirrors the dedicated mobile web auth page with the dark/light gradient backdrop, elevated rounded card, green CTA treatment, and the `LogoHeader` wordmark asset.
 - Actions: web sign-in, logout and `me` refresh.
 - States: restoring, authenticated, unauthenticated, error.
 - Conditions: valid callback `code/state`, backend availability, valid token exchange.
@@ -132,6 +133,7 @@ Constraints: stored in Keychain only.
 
 ## 17. UX Requirements
 - Feedback: clear loading and error states.
+- Visual consistency: login screen should stay aligned with the dedicated mobile web auth branding while preserving native spacing and dark-mode support.
 - Errors: actionable auth failure messages.
 - Loading: launch spinner while session restore runs.
 - Responsive: native layout adapts by default.
