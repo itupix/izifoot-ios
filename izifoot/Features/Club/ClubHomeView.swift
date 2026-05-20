@@ -3,12 +3,140 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 import UIKit
 
+private struct TeamAgeCategoryOption: Identifiable {
+    let value: String
+    let label: String
+
+    var id: String { value }
+}
+
+private let teamAgeCategoryOptions: [TeamAgeCategoryOption] = [
+    TeamAgeCategoryOption(value: "U6", label: "U6"),
+    TeamAgeCategoryOption(value: "U7", label: "U7"),
+    TeamAgeCategoryOption(value: "U8", label: "U8"),
+    TeamAgeCategoryOption(value: "U9", label: "U9"),
+    TeamAgeCategoryOption(value: "U10", label: "U10"),
+    TeamAgeCategoryOption(value: "U11", label: "U11"),
+    TeamAgeCategoryOption(value: "U12", label: "U12"),
+    TeamAgeCategoryOption(value: "U13", label: "U13"),
+    TeamAgeCategoryOption(value: "U14", label: "U14"),
+    TeamAgeCategoryOption(value: "U15", label: "U15"),
+    TeamAgeCategoryOption(value: "U16", label: "U16"),
+    TeamAgeCategoryOption(value: "U17", label: "U17"),
+    TeamAgeCategoryOption(value: "U18", label: "U18"),
+    TeamAgeCategoryOption(value: "U19", label: "U19"),
+    TeamAgeCategoryOption(value: "U20", label: "U20"),
+    TeamAgeCategoryOption(value: "SENIORS", label: "Seniors"),
+    TeamAgeCategoryOption(value: "VETERANS", label: "Vétérans"),
+]
+
+private let teamAgeCategoryIndexByValue = Dictionary(uniqueKeysWithValues: teamAgeCategoryOptions.enumerated().map { ($0.element.value, $0.offset) })
+private let teamAgeCategoryLabelByValue = Dictionary(uniqueKeysWithValues: teamAgeCategoryOptions.map { ($0.value, $0.label) })
+private let teamGameFormatOptions = ["3v3", "5v5", "8v8", "11v11"]
+
+private func normalizeCategoryToken(_ value: String) -> String {
+    value
+        .folding(options: .diacriticInsensitive, locale: .current)
+        .uppercased()
+        .replacingOccurrences(of: "[^A-Z0-9]", with: "", options: .regularExpression)
+}
+
+private func parseAgeCategorySelection(_ rawValue: String?) -> [String] {
+    guard let rawValue else { return [] }
+
+    var normalizedOptions = Dictionary(uniqueKeysWithValues: teamAgeCategoryOptions.map { (normalizeCategoryToken($0.label), $0.value) })
+    teamAgeCategoryOptions.forEach { option in
+        normalizedOptions[normalizeCategoryToken(option.value)] = option.value
+    }
+
+    let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else { return [] }
+
+    let rangeParts = normalized
+        .split(separator: "-")
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    if rangeParts.count == 2 {
+        guard
+            let startValue = normalizedOptions[normalizeCategoryToken(rangeParts[0])],
+            let endValue = normalizedOptions[normalizeCategoryToken(rangeParts[1])],
+            let startIndex = teamAgeCategoryIndexByValue[startValue],
+            let endIndex = teamAgeCategoryIndexByValue[endValue],
+            startIndex <= endIndex
+        else {
+            return []
+        }
+
+        return teamAgeCategoryOptions[startIndex...endIndex].map(\.value)
+    }
+
+    guard let singleValue = normalizedOptions[normalizeCategoryToken(normalized)] else {
+        return []
+    }
+
+    return [singleValue]
+}
+
+private func buildAgeCategoryLabel(_ values: [String]) -> String {
+    let sorted = sortAgeCategories(values)
+
+    guard let first = sorted.first else { return "" }
+    let firstLabel = teamAgeCategoryLabelByValue[first] ?? first
+    guard let last = sorted.last, sorted.count > 1 else { return firstLabel }
+    let lastLabel = teamAgeCategoryLabelByValue[last] ?? last
+    return "\(firstLabel)-\(lastLabel)"
+}
+
+private func suggestGameFormat(from values: [String]) -> String {
+    let sorted = sortAgeCategories(values)
+
+    guard let first = sorted.first else { return "" }
+    if first == "SENIORS" || first == "VETERANS" {
+        return "11v11"
+    }
+
+    let ageValue = first.replacingOccurrences(of: "U", with: "")
+    guard let age = Int(ageValue) else { return "11v11" }
+    if age <= 7 { return "3v3" }
+    if age <= 9 { return "5v5" }
+    if age <= 13 { return "8v8" }
+    return "11v11"
+}
+
+private func normalizeGameFormat(_ value: String?) -> String {
+    let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return teamGameFormatOptions.contains(normalized) ? normalized : ""
+}
+
+private func sortAgeCategories(_ values: [String]) -> [String] {
+    values.sorted {
+        (teamAgeCategoryIndexByValue[$0] ?? .max) < (teamAgeCategoryIndexByValue[$1] ?? .max)
+    }
+}
+
+private func areAgeCategoriesContiguous(_ values: [String]) -> Bool {
+    let sorted = sortAgeCategories(values)
+    guard !sorted.isEmpty else { return false }
+
+    for index in 1..<sorted.count {
+        let previous = teamAgeCategoryIndexByValue[sorted[index - 1]]
+        let current = teamAgeCategoryIndexByValue[sorted[index]]
+        if previous == nil || current == nil || current != previous! + 1 {
+            return false
+        }
+    }
+
+    return true
+}
+
 @MainActor
 final class ClubHomeViewModel: ObservableObject {
     @Published private(set) var club: Club?
     @Published private(set) var teams: [Team] = []
     @Published private(set) var coaches: [Coach] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var mutatingTeamIDs = Set<String>()
     @Published private(set) var mutatingCoachIDs = Set<String>()
     @Published private(set) var isSavingCoach = false
     @Published private(set) var inviteURL: URL?
@@ -49,6 +177,62 @@ final class ClubHomeViewModel: ObservableObject {
             await load()
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+        }
+    }
+
+    @discardableResult
+    func updateTeam(id: String, name: String, category: String, format: String) async -> Team? {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Le nom de l'équipe est requis."
+            return nil
+        }
+        guard trimmedName.count <= 80 else {
+            errorMessage = "Le nom de l'équipe doit contenir au maximum 80 caractères."
+            return nil
+        }
+        guard !trimmedCategory.isEmpty else {
+            errorMessage = "La catégorie est requise."
+            return nil
+        }
+        guard !trimmedFormat.isEmpty else {
+            errorMessage = "Le format est requis."
+            return nil
+        }
+
+        mutatingTeamIDs.insert(id)
+        defer { mutatingTeamIDs.remove(id) }
+
+        do {
+            let updatedTeam = try await api.updateTeam(
+                id: id,
+                name: trimmedName,
+                category: trimmedCategory,
+                format: trimmedFormat
+            )
+            await load()
+            return updatedTeam
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return nil
+        }
+    }
+
+    @discardableResult
+    func deleteTeam(id: String) async -> Bool {
+        mutatingTeamIDs.insert(id)
+        defer { mutatingTeamIDs.remove(id) }
+
+        do {
+            try await api.deleteTeam(id: id)
+            await load()
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
         }
     }
 
@@ -175,6 +359,7 @@ struct ClubHomeView: View {
     @State private var isCreateTeamSheetPresented = false
     @State private var isRenameClubSheetPresented = false
     @State private var isAddCoachSheetPresented = false
+    @State private var selectedTeamSheetTarget: TeamSheetTarget?
     @State private var coachPendingDelete: Coach?
 
     var body: some View {
@@ -189,88 +374,36 @@ struct ClubHomeView: View {
                     }
                 }
 
-                Section("Equipes") {
-                    Button("Ajouter une équipe") {
-                        isCreateTeamSheetPresented = true
-                    }
-
-                    ForEach(viewModel.teams) { team in
-                        let teamCoaches = viewModel.coaches(for: team.id)
-                        let assignableCoaches = viewModel.assignableCoaches(for: team.id)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(team.name)
-                                    .font(.headline)
-                                Text([team.category, team.format].compactMap { $0 }.joined(separator: " • "))
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("Coachs associés")
-                                        .font(.subheadline.weight(.semibold))
+                Section {
+                    if viewModel.teams.isEmpty {
+                        Text("Aucune équipe.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(viewModel.teams) { team in
+                            Button {
+                                selectedTeamSheetTarget = TeamSheetTarget(id: team.id)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text(team.name)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
                                     Spacer()
-                                    Text("\(teamCoaches.count)")
-                                        .font(.caption.weight(.bold))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.blue.opacity(0.12))
-                                        .foregroundStyle(.blue)
-                                        .clipShape(Capsule())
-                                }
-
-                                if teamCoaches.isEmpty {
-                                    Text("Aucun coach affecté à cette équipe.")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    ForEach(teamCoaches) { coach in
-                                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(coach.displayName)
-                                                    .font(.subheadline.weight(.medium))
-                                                if let status = coach.invitationStatusLabel {
-                                                    Text(status)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.blue)
-                                                }
-                                            }
-
-                                            Spacer()
-
-                                            Button("Retirer") {
-                                                Task { await viewModel.removeCoach(coach, from: team.id) }
-                                            }
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.red)
-                                            .disabled(viewModel.mutatingCoachIDs.contains(coach.id))
-                                        }
-                                    }
-                                }
-
-                                if !assignableCoaches.isEmpty {
-                                    Menu("Affecter un coach") {
-                                        ForEach(assignableCoaches) { coach in
-                                            Button(coach.displayName) {
-                                                Task { await viewModel.assignCoach(coach, to: team.id) }
-                                            }
-                                        }
-                                    }
-                                    .font(.footnote.weight(.semibold))
+                                    Image(systemName: "chevron.right")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
                             }
+                            .buttonStyle(.plain)
+                            .disabled(viewModel.mutatingTeamIDs.contains(team.id))
                         }
-                        .padding(.vertical, 4)
+                    }
+                } header: {
+                    SectionActionHeader(title: "Equipes") {
+                        isCreateTeamSheetPresented = true
                     }
                 }
 
-                Section("Coachs") {
-                    Button("Ajouter un coach") {
-                        isAddCoachSheetPresented = true
-                    }
-
+                Section {
                     if viewModel.coaches.isEmpty {
                         Text("Aucun coach.")
                             .foregroundStyle(.secondary)
@@ -306,6 +439,10 @@ struct ClubHomeView: View {
                                 }
                             }
                         }
+                    }
+                } header: {
+                    SectionActionHeader(title: "Coachs") {
+                        isAddCoachSheetPresented = true
                     }
                 }
             }
@@ -359,6 +496,36 @@ struct ClubHomeView: View {
                     InviteCoachSheet(url: url, coachName: viewModel.inviteTargetName ?? "le coach")
                 }
             }
+            .sheet(item: $selectedTeamSheetTarget) { target in
+                if let team = viewModel.teams.first(where: { $0.id == target.id }) {
+                    TeamDetailsSheet(
+                        team: team,
+                        teamCoaches: viewModel.coaches(for: target.id),
+                        assignableCoaches: viewModel.assignableCoaches(for: target.id),
+                        mutatingCoachIDs: viewModel.mutatingCoachIDs,
+                        isSubmitting: viewModel.mutatingTeamIDs.contains(target.id),
+                        onSave: { name, category, format in
+                            await viewModel.updateTeam(id: target.id, name: name, category: category, format: format)
+                        },
+                        onDelete: {
+                            await viewModel.deleteTeam(id: target.id)
+                        },
+                        onAssignCoach: { coach in
+                            await viewModel.assignCoach(coach, to: target.id)
+                        },
+                        onRemoveCoach: { coach in
+                            await viewModel.removeCoach(coach, from: target.id)
+                        }
+                    )
+                    .presentationDetents([.medium, .large])
+                } else {
+                    NavigationStack {
+                        Text("Équipe introuvable.")
+                            .foregroundStyle(.secondary)
+                            .navigationTitle("Équipe")
+                    }
+                }
+            }
             .confirmationDialog(
                 "Supprimer ce coach du club ?",
                 isPresented: Binding(
@@ -396,6 +563,297 @@ struct ClubHomeView: View {
 
 private func coachInviteButtonTitle(for coach: Coach) -> String {
     coach.invitationStatus?.uppercased() == "PENDING" ? "Renvoyer l'invitation" : "Inviter"
+}
+
+private struct TeamSheetTarget: Identifiable {
+    let id: String
+}
+
+private struct SectionActionHeader: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+            Spacer()
+            Button("Ajouter") {
+                action()
+            }
+            .font(.subheadline.weight(.medium))
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .textCase(nil)
+    }
+}
+
+private struct TeamFormFields: View {
+    @Binding var name: String
+    @Binding var selectedAgeCategories: [String]
+    @Binding var teamGameFormat: String
+
+    let isAgeSelectionContiguous: Bool
+    let onToggleAgeCategory: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Nom de l'équipe")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("Nom de l'équipe", text: $name)
+                .textInputAutocapitalization(.words)
+        }
+        .padding(.vertical, 4)
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Catégorie d'âge")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(teamAgeCategoryOptions) { option in
+                    let isSelected = selectedAgeCategories.contains(option.value)
+                    Button(option.label) {
+                        onToggleAgeCategory(option.value)
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .background(isSelected ? Color.accentColor.opacity(0.16) : Color(uiColor: .secondarySystemFill))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                    .overlay(
+                        Capsule()
+                            .stroke(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if !isAgeSelectionContiguous && !selectedAgeCategories.isEmpty {
+                Text("Les catégories sélectionnées doivent se suivre (ex: U8-U10).")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.vertical, 4)
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Format de jeu")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Picker("Format de jeu", selection: $teamGameFormat) {
+                Text("Sélectionner un format").tag("")
+                ForEach(teamGameFormatOptions, id: \.self) { option in
+                    Text(option).tag(option)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct TeamDetailsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let team: Team
+    let teamCoaches: [Coach]
+    let assignableCoaches: [Coach]
+    let mutatingCoachIDs: Set<String>
+    let isSubmitting: Bool
+    let onSave: (String, String, String) async -> Team?
+    let onDelete: () async -> Bool
+    let onAssignCoach: (Coach) async -> Void
+    let onRemoveCoach: (Coach) async -> Void
+
+    @State private var name: String
+    @State private var selectedAgeCategories: [String]
+    @State private var teamGameFormat: String
+    @State private var isDeleteConfirmationPresented = false
+
+    init(
+        team: Team,
+        teamCoaches: [Coach],
+        assignableCoaches: [Coach],
+        mutatingCoachIDs: Set<String>,
+        isSubmitting: Bool,
+        onSave: @escaping (String, String, String) async -> Team?,
+        onDelete: @escaping () async -> Bool,
+        onAssignCoach: @escaping (Coach) async -> Void,
+        onRemoveCoach: @escaping (Coach) async -> Void
+    ) {
+        self.team = team
+        self.teamCoaches = teamCoaches
+        self.assignableCoaches = assignableCoaches
+        self.mutatingCoachIDs = mutatingCoachIDs
+        self.isSubmitting = isSubmitting
+        self.onSave = onSave
+        self.onDelete = onDelete
+        self.onAssignCoach = onAssignCoach
+        self.onRemoveCoach = onRemoveCoach
+        _name = State(initialValue: team.name)
+        let parsedCategories = parseAgeCategorySelection(team.category)
+        _selectedAgeCategories = State(initialValue: parsedCategories)
+        _teamGameFormat = State(initialValue: normalizeGameFormat(team.format).isEmpty ? suggestGameFormat(from: parsedCategories) : normalizeGameFormat(team.format))
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var sortedSelectedAgeCategories: [String] {
+        sortAgeCategories(selectedAgeCategories)
+    }
+
+    private var isAgeSelectionContiguous: Bool {
+        areAgeCategoriesContiguous(selectedAgeCategories)
+    }
+
+    private var selectedAgeCategoryLabel: String {
+        buildAgeCategoryLabel(sortedSelectedAgeCategories)
+    }
+
+    private var canSave: Bool {
+        !isSubmitting && !trimmedName.isEmpty && trimmedName.count <= 80 && isAgeSelectionContiguous && !teamGameFormat.isEmpty
+    }
+
+    private var isCoachMutationInFlight: Bool {
+        !mutatingCoachIDs.isEmpty
+    }
+
+    private func toggleAgeCategory(_ value: String) {
+        if selectedAgeCategories.contains(value) {
+            selectedAgeCategories.removeAll { $0 == value }
+        } else {
+            selectedAgeCategories.append(value)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Équipe") {
+                    TeamFormFields(
+                        name: $name,
+                        selectedAgeCategories: $selectedAgeCategories,
+                        teamGameFormat: $teamGameFormat,
+                        isAgeSelectionContiguous: isAgeSelectionContiguous,
+                        onToggleAgeCategory: toggleAgeCategory
+                    )
+                }
+
+                Section("Coachs associés") {
+                    if teamCoaches.isEmpty {
+                        Text("Aucun coach affecté à cette équipe.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(teamCoaches) { coach in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(coach.displayName)
+                                        .font(.subheadline.weight(.medium))
+                                    if let status = coach.invitationStatusLabel {
+                                        Text(status)
+                                            .font(.caption)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+
+                                Spacer()
+
+                                Button("Retirer") {
+                                    Task { await onRemoveCoach(coach) }
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.red)
+                                .disabled(isSubmitting || mutatingCoachIDs.contains(coach.id))
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    if assignableCoaches.isEmpty {
+                        Text("Tous les coachs du club sont déjà affectés à cette équipe.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Menu("Affecter un coach") {
+                            ForEach(assignableCoaches) { coach in
+                                Button(coach.displayName) {
+                                    Task { await onAssignCoach(coach) }
+                                }
+                            }
+                        }
+                        .disabled(isSubmitting || isCoachMutationInFlight)
+                    }
+                }
+
+                Section {
+                    Button("Supprimer l'équipe", role: .destructive) {
+                        isDeleteConfirmationPresented = true
+                    }
+                    .disabled(isSubmitting || isCoachMutationInFlight)
+                }
+            }
+            .navigationTitle(trimmedName.isEmpty ? team.name : trimmedName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task {
+                            if let updatedTeam = await onSave(trimmedName, selectedAgeCategoryLabel, teamGameFormat) {
+                                name = updatedTeam.name
+                                selectedAgeCategories = parseAgeCategorySelection(updatedTeam.category)
+                                teamGameFormat = normalizeGameFormat(updatedTeam.format)
+                            }
+                        }
+                    } label: {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                    .disabled(!canSave)
+                }
+            }
+            .onChange(of: sortedSelectedAgeCategories) { _, newValue in
+                let suggestion = suggestGameFormat(from: newValue)
+                if !suggestion.isEmpty {
+                    teamGameFormat = suggestion
+                }
+            }
+            .confirmationDialog(
+                "Supprimer cette équipe ?",
+                isPresented: $isDeleteConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Supprimer", role: .destructive) {
+                    Task {
+                        let deleted = await onDelete()
+                        if deleted {
+                            dismiss()
+                        }
+                    }
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Cette action est définitive et peut échouer si l'équipe est encore référencée ailleurs.")
+            }
+        }
+    }
 }
 
 struct RenameClubSheet: View {
@@ -455,34 +913,80 @@ struct CreateTeamSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
-    @State private var category = ""
-    @State private var format = ""
+    @State private var selectedAgeCategories: [String] = []
+    @State private var teamGameFormat = ""
 
     let onSubmit: (String, String?, String?) async -> Void
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var sortedSelectedAgeCategories: [String] {
+        sortAgeCategories(selectedAgeCategories)
+    }
+
+    private var isAgeSelectionContiguous: Bool {
+        areAgeCategoriesContiguous(selectedAgeCategories)
+    }
+
+    private var selectedAgeCategoryLabel: String {
+        buildAgeCategoryLabel(sortedSelectedAgeCategories)
+    }
+
+    private var canSubmit: Bool {
+        !trimmedName.isEmpty && trimmedName.count <= 80 && isAgeSelectionContiguous && !teamGameFormat.isEmpty
+    }
+
+    private func toggleAgeCategory(_ value: String) {
+        if selectedAgeCategories.contains(value) {
+            selectedAgeCategories.removeAll { $0 == value }
+        } else {
+            selectedAgeCategories.append(value)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Nom", text: $name)
-                TextField("Catégorie", text: $category)
-                TextField("Format (5v5, 8v8, 11v11)", text: $format)
+                Section("Équipe") {
+                    TeamFormFields(
+                        name: $name,
+                        selectedAgeCategories: $selectedAgeCategories,
+                        teamGameFormat: $teamGameFormat,
+                        isAgeSelectionContiguous: isAgeSelectionContiguous,
+                        onToggleAgeCategory: toggleAgeCategory
+                    )
+                }
             }
             .navigationTitle("Nouvelle équipe")
+            .onChange(of: sortedSelectedAgeCategories) { _, newValue in
+                let suggestion = suggestGameFormat(from: newValue)
+                if !suggestion.isEmpty {
+                    teamGameFormat = suggestion
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Créer") {
+                    Button {
                         Task {
                             await onSubmit(
-                                name,
-                                category.isEmpty ? nil : category,
-                                format.isEmpty ? nil : format
+                                trimmedName,
+                                selectedAgeCategoryLabel.isEmpty ? nil : selectedAgeCategoryLabel,
+                                teamGameFormat.isEmpty ? nil : teamGameFormat
                             )
                         }
+                    } label: {
+                        Image(systemName: "checkmark")
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(!canSubmit)
                 }
             }
         }

@@ -58,7 +58,7 @@ Restrictions: backend role/scope checks.
 - API: clubs, teams, and coaches endpoints.
 
 ## 6. User Flows
-- Main flow: open club home -> inspect teams -> add or resend a coach invitation -> open the share sheet with the link and QR -> assign or remove coaches directly inside a team -> manage the coach directory.
+- Main flow: open club home -> inspect team names -> add or resend a coach invitation -> open the share sheet with the link and QR -> open a dedicated team sheet to review or edit team details and coach assignments -> manage the coach directory.
 - Variants: add a coach from iOS; rename or create team.
 - Back navigation: return to previous tab.
 - Interruptions: update/create errors.
@@ -66,7 +66,7 @@ Restrictions: backend role/scope checks.
 - Edge cases: club with no teams/coaches.
 
 ## 7. Functional Behavior
-- UI behavior: sectioned lists for club, teams, and coaches with inline coach actions per team.
+- UI behavior: sectioned lists for club, teams, and coaches with compact `Ajouter` actions in section headers; the team list shows only the team name and opens a dedicated team sheet for details and coach assignments, while both team sheets use explicit field labels, age-category tags, and a format dropdown.
 - Actions: mutate club name, team list, coach list, coach invitations, and coach-team assignments.
 - States: loading, ready, mutating, error.
 - Conditions: direction role.
@@ -86,7 +86,7 @@ Constraints: backend validations.
 - Team creation requires category and format.
 - Coach list derived from users and invitation context.
 - Coach creation and resend can immediately open a share sheet with the invitation link and QR.
-- Team rows are the primary coach-assignment surface.
+- The team-detail sheet is the primary surface for team metadata and coach assignments.
 - The team scope picker is hidden on `Mon club` to avoid conflicting with cross-team administration.
 
 ## 10. State Machine
@@ -96,8 +96,9 @@ Constraints: backend validations.
 
 ## 11. UI Components
 - Club info card.
-- Rename and create-team sheets.
-- Team list with coach chips and assignment menu.
+- Rename sheet and create-team sheet using the shared team editor ergonomics.
+- Team list with tap-to-open detail sheet.
+- Team detail sheet with team metadata, coach assignments, and deletion entrypoint.
 - Coach list with resend/delete actions.
 - Add-coach sheet.
 
@@ -131,6 +132,9 @@ Constraints: backend validations.
 - Empty states: no teams/no coaches/no assigned coach on a team.
 - Loading: progress indicator.
 - Responsive: native sheet UX.
+- Action placement: primary add actions stay in the top-right corner of their associated block to match other admin surfaces.
+- Team interactions: tapping a team row opens its dedicated sheet instead of expanding dense inline content in the list.
+- Team editor ergonomics: age categories use multi-select tags with contiguous-range validation, and game format uses a dropdown aligned with the web flow.
 
 ## 18. Ambiguities & Gaps
 - Observed
