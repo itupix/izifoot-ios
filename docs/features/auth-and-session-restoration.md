@@ -60,7 +60,7 @@ Restrictions: dependent on backend `/me` availability.
 
 ## 6. User Flows
 - Main flow: open app -> restore session -> show shell or auth.
-- Mobile flow: tap `Se connecter` -> `ASWebAuthenticationSession` -> web login page -> `izifoot://auth/callback?code&state` -> `/auth/mobile/exchange` -> `/me`.
+- Mobile flow: tap `Se connecter` -> `ASWebAuthenticationSession` opens `https://api.izifoot.fr/auth/mobile/start?platform=ios` -> backend forwards to the web login page when needed -> `izifoot://auth/callback?code&state` -> `/auth/mobile/exchange` -> `/me`.
 - Back navigation: logout returns to auth screen.
 - Interruptions: token invalidated server-side.
 - Errors: user cancellation is neutral, network/exchange/token failures are surfaced as auth errors.

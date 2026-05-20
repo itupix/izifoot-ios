@@ -37,7 +37,7 @@ L'environnement actuel ne contient pas l'app Xcode complète (pas de `xcodebuild
 Flow livré:
 
 1. L’utilisateur touche `Se connecter`.
-2. L’app ouvre `https://izifoot.fr/auth/mobile/start?platform=ios` via `ASWebAuthenticationSession`.
+2. L’app ouvre `https://api.izifoot.fr/auth/mobile/start?platform=ios` via `ASWebAuthenticationSession`.
 3. Le web redirige ensuite vers l’app avec `izifoot://auth/callback?code=...&state=...`.
 4. L’app échange ce couple via `POST /auth/mobile/exchange`.
 5. L’access token est stocké dans le Keychain, jamais dans `UserDefaults`.
