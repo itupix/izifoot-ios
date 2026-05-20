@@ -464,6 +464,20 @@ struct PlayersHomeView: View {
         }
     }
 
+    private func playerDisplayName(_ player: Player) -> String {
+        let firstName = player.firstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let lastName = player.lastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fullName = [firstName, lastName]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullName.isEmpty {
+            return fullName
+        }
+        let legacyName = player.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return legacyName.isEmpty ? "Joueur" : legacyName
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -640,18 +654,8 @@ struct PlayersHomeView: View {
                 NavigationLink {
                     PlayerDetailView(playerID: player.id)
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(player.name)
-                            .font(.headline)
-                        let subtitle = [player.primaryPosition, player.email]
-                            .compactMap { $0 }
-                            .joined(separator: " • ")
-                        if !subtitle.isEmpty {
-                            Text(subtitle)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Text(playerDisplayName(player))
+                        .font(.headline)
                 }
             }
 

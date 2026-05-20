@@ -128,6 +128,7 @@ Constraints: backend role/scope and field constraints.
 - Empty states: no players available.
 - Loading: pagination and detail loading indicators.
 - Responsive: native forms optimized for small screens.
+- Players list rows show only the player first name + last name; role/position remains editable in forms and visible in detail, but not in the list row.
 
 ## 18. Ambiguities & Gaps
 - Observed

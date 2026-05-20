@@ -219,8 +219,9 @@ struct DrillDetailView: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(.vertical, 20)
         }
+        .padding(.horizontal, 16)
         .navigationTitle(viewModel.drill?.title ?? "Exercice")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
