@@ -269,7 +269,8 @@ final class MatchdayDetailViewModel: ObservableObject {
         (matchday.competitionType ?? "PLATEAU").uppercased()
     }
 
-    func deleteMatch(id: String) async {
+    @discardableResult
+    func deleteMatch(id: String) async -> Bool {
         isUpdatingMatches = true
         defer { isUpdatingMatches = false }
 
@@ -277,8 +278,10 @@ final class MatchdayDetailViewModel: ObservableObject {
             try await api.deleteMatch(id: id)
             await reloadMatchesState()
             errorMessage = nil
+            return true
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
         }
     }
 
@@ -581,6 +584,9 @@ struct MatchdayDetailView: View {
                 playerNamesByID: playerNamesByID,
                 matchProvider: { matchID in
                     viewModel.matches.first(where: { $0.id == matchID })
+                },
+                onDeleteManualMatch: { matchID in
+                    await viewModel.deleteMatch(id: matchID)
                 }
             )
         }
@@ -917,7 +923,7 @@ private struct MatchdayDetailScaffold: View {
             pageContent
                 .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
                 .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .listRowBackground(Color(uiColor: .clear))
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -1953,6 +1959,7 @@ private struct MatchdayMatchesPagerSheet: View {
     let matchdayDate: String
     let playerNamesByID: [String: String]
     let matchProvider: (String) -> MatchLite?
+    let onDeleteManualMatch: (String) async -> Bool
 
     @State private var selectedMatchID: String
     @StateObject private var sheetViewModel: MatchdayMatchesSheetViewModel
@@ -1963,7 +1970,8 @@ private struct MatchdayMatchesPagerSheet: View {
         clubName: String?,
         matchdayDate: String,
         playerNamesByID: [String: String],
-        matchProvider: @escaping (String) -> MatchLite?
+        matchProvider: @escaping (String) -> MatchLite?,
+        onDeleteManualMatch: @escaping (String) async -> Bool
     ) {
         self.initialMatchID = initialMatchID
         self.matches = matches
@@ -1971,6 +1979,7 @@ private struct MatchdayMatchesPagerSheet: View {
         self.matchdayDate = matchdayDate
         self.playerNamesByID = playerNamesByID
         self.matchProvider = matchProvider
+        self.onDeleteManualMatch = onDeleteManualMatch
         _selectedMatchID = State(initialValue: initialMatchID)
         _sheetViewModel = StateObject(
             wrappedValue: MatchdayMatchesSheetViewModel(
@@ -1989,7 +1998,8 @@ private struct MatchdayMatchesPagerSheet: View {
                             clubName: clubName,
                             matchdayDate: matchdayDate,
                             matchProvider: matchProvider,
-                            viewModel: sheetViewModel.viewModel(for: match.id)
+                            viewModel: sheetViewModel.viewModel(for: match.id),
+                            onDeleteManualMatch: onDeleteManualMatch
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         .overlay {
@@ -2051,63 +2061,34 @@ private struct MatchdayMatchesPagerSheet: View {
 }
 
 private struct MatchdayMatchDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+
     let clubName: String?
     let matchdayDate: String
     let matchProvider: (String) -> MatchLite?
     @ObservedObject var viewModel: MatchdayMatchDetailViewModel
+    let onDeleteManualMatch: (String) async -> Bool
     @State private var isEditingScore = false
+    @State private var isDeletingManualMatch = false
 
     init(
         clubName: String?,
         matchdayDate: String,
         matchProvider: @escaping (String) -> MatchLite?,
-        viewModel: MatchdayMatchDetailViewModel
+        viewModel: MatchdayMatchDetailViewModel,
+        onDeleteManualMatch: @escaping (String) async -> Bool
     ) {
         self.clubName = clubName
         self.matchdayDate = matchdayDate
         self.matchProvider = matchProvider
         self.viewModel = viewModel
+        self.onDeleteManualMatch = onDeleteManualMatch
     }
 
     var body: some View {
         Group {
-            if let match = viewModel.matchDetail ?? matchProvider(viewModel.matchID).map(MatchdayMatchDetailViewModel.makeDetailFallback(from:)) {
-                let isExternalMatch = match.isExternalMatch
-                List {
-                    VStack(alignment: .leading, spacing: 20) {
-                        MatchDetailHeroCard(
-                            match: match,
-                            clubName: clubName,
-                            matchdayDate: matchdayDate,
-                            playerNamesByID: viewModel.playerNamesByID,
-                            availableScorerIDs: viewModel.availableScorerPlayerIDs,
-                            scorerDisplayName: { viewModel.displayName(for: $0) },
-                            onApplyScoreEdit: { homeScore, awayScore, scorerCounts in
-                                viewModel.applyScoreDraft(homeScore: homeScore, awayScore: awayScore, scorerCounts: scorerCounts)
-                            },
-                            allowsScorerEditing: !isExternalMatch,
-                            isEditing: $isEditingScore
-                        )
-
-                        if !isExternalMatch {
-                            MatchLineupCard(
-                                detail: match,
-                                viewModel: viewModel
-                            )
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color(uiColor: .systemGroupedBackground))
-                .overlay(alignment: .center) {
-                    if viewModel.isLoading {
-                        ProgressView("Chargement")
-                    }
-                }
+            if let match = resolvedMatch {
+                matchContent(for: match)
             } else {
                 ContentUnavailableView("Match indisponible", systemImage: "sportscourt", description: Text("Ce match n'est plus disponible."))
             }
@@ -2120,6 +2101,90 @@ private struct MatchdayMatchDetailView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+    }
+
+    private var resolvedMatch: MatchDetail? {
+        if let detail = viewModel.matchDetail {
+            return detail
+        }
+        guard let fallbackMatch = matchProvider(viewModel.matchID) else {
+            return nil
+        }
+        return MatchdayMatchDetailViewModel.makeDetailFallback(from: fallbackMatch)
+    }
+
+    private func matchContent(for match: MatchDetail) -> some View {
+        List {
+            VStack(alignment: .leading, spacing: 20) {
+                MatchDetailHeroCard(
+                    match: match,
+                    clubName: clubName,
+                    matchdayDate: matchdayDate,
+                    playerNamesByID: viewModel.playerNamesByID,
+                    availableScorerIDs: viewModel.availableScorerPlayerIDs,
+                    scorerDisplayName: scorerDisplayName(for:),
+                    onApplyScoreEdit: applyScoreEdit(homeScore:awayScore:scorerCounts:opponentName:),
+                    allowsOpponentEditing: isManualMatch(match) && !match.isExternalMatch,
+                    allowsScorerEditing: !match.isExternalMatch,
+                    showsDeleteAction: isManualMatch(match),
+                    isDeletingManualMatch: isDeletingManualMatch,
+                    onDeleteManualMatch: deleteManualMatchAction(for: match),
+                    isEditing: $isEditingScore
+                )
+
+                if !match.isExternalMatch {
+                    MatchLineupCard(
+                        detail: match,
+                        viewModel: viewModel
+                    )
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 20, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color(uiColor: .clear))
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .overlay(alignment: .center) {
+            if viewModel.isLoading {
+                ProgressView("Chargement")
+            }
+        }
+    }
+
+    private func isManualMatch(_ match: MatchDetail) -> Bool {
+        (match.rotationGameKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+    }
+
+    private func scorerDisplayName(for playerID: String) -> String {
+        viewModel.displayName(for: playerID)
+    }
+
+    private func applyScoreEdit(homeScore: Int, awayScore: Int, scorerCounts: [String: Int], opponentName: String?) {
+        viewModel.applyScoreDraft(
+            homeScore: homeScore,
+            awayScore: awayScore,
+            scorerCounts: scorerCounts,
+            opponentName: opponentName
+        )
+    }
+
+    private func deleteManualMatchAction(for match: MatchDetail) -> (() async -> Void)? {
+        guard isManualMatch(match) else { return nil }
+        return {
+            await handleDeleteManualMatch(matchID: match.id)
+        }
+    }
+
+    private func handleDeleteManualMatch(matchID: String) async {
+        guard !isDeletingManualMatch else { return }
+        isDeletingManualMatch = true
+        let didDelete = await onDeleteManualMatch(matchID)
+        isDeletingManualMatch = false
+        guard didDelete else { return }
+        viewModel.discardDeletedMatch()
+        dismiss()
     }
 }
 
@@ -2479,7 +2544,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         return matchDetail.scorers.filter { $0.side == "home" && $0.playerId == playerID }.count
     }
 
-    func applyScoreDraft(homeScore: Int, awayScore: Int, scorerCounts: [String: Int]) {
+    func applyScoreDraft(homeScore: Int, awayScore: Int, scorerCounts: [String: Int], opponentName: String?) {
         guard let detail = matchDetail else { return }
 
         let updatedTeams = detail.teams.map { team in
@@ -2508,12 +2573,21 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
                 ), count: count)
             }
 
+        let currentScorerCounts = Dictionary(
+            uniqueKeysWithValues: availableScorerPlayerIDs.map { playerID in
+                (playerID, detail.scorers.filter { $0.side == "home" && $0.playerId == playerID }.count)
+            }
+        )
+        let hasResultChange = homeScore != self.goalCount(on: detail, side: "home")
+            || awayScore != self.goalCount(on: detail, side: "away")
+            || currentScorerCounts != scorerCounts
+
         matchDetail = MatchDetail(
             id: detail.id,
             type: detail.type,
             matchdayId: detail.matchdayId,
-            opponentName: detail.opponentName,
-            played: true,
+            opponentName: opponentName,
+            played: hasResultChange ? true : detail.played,
             status: detail.status,
             rotationGameKey: detail.rotationGameKey,
             teams: updatedTeams,
@@ -2524,6 +2598,12 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             field: detail.field
         )
         hasPendingChanges = true
+    }
+
+    func discardDeletedMatch() {
+        hasPendingChanges = false
+        matchDetail = nil
+        selectedComposition = nil
     }
 
     private func abbreviatedDisplayName(_ name: String) -> String {
@@ -2623,6 +2703,10 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func goalCount(on detail: MatchDetail, side: String) -> Int {
+        detail.teams.first(where: { $0.side == side })?.score ?? 0
     }
 
     private func eligiblePlayerIDs(detail: MatchDetail, summary: MatchdaySummary?, attendance: [AttendanceRow]?) -> Set<String> {
@@ -3054,16 +3138,23 @@ private struct MatchDetailHeroCard: View {
     let playerNamesByID: [String: String]
     let availableScorerIDs: [String]
     let scorerDisplayName: (String) -> String
-    let onApplyScoreEdit: (Int, Int, [String: Int]) -> Void
+    let onApplyScoreEdit: (Int, Int, [String: Int], String?) -> Void
+    let allowsOpponentEditing: Bool
     let allowsScorerEditing: Bool
+    let showsDeleteAction: Bool
+    let isDeletingManualMatch: Bool
+    let onDeleteManualMatch: (() async -> Void)?
     @Binding var isEditing: Bool
 
     @State private var draftHomeScore: Int = 0
     @State private var draftAwayScore: Int = 0
+    @State private var draftOpponentName: String = ""
     @State private var scorerCounts: [String: Int] = [:]
     @State private var flipAngle: Double = 0
     @State private var shouldUseExpandedLayout = false
     @State private var stagedAnimationTask: Task<Void, Never>?
+    @State private var isDeleteConfirmationPresented = false
+    @State private var isOpponentEditorPresented = false
 
     var body: some View {
         layoutFace
@@ -3110,6 +3201,11 @@ private struct MatchDetailHeroCard: View {
                 syncDraftFromMatch()
             }
         }
+        .onChange(of: match.opponentName) { _, _ in
+            if !isEditing {
+                syncDraftFromMatch()
+            }
+        }
         .onChange(of: isEditing) { _, newValue in
             stagedAnimationTask?.cancel()
             if newValue {
@@ -3136,6 +3232,22 @@ private struct MatchDetailHeroCard: View {
                     }
                 }
             }
+        }
+        .alert("Supprimer le match ?", isPresented: $isDeleteConfirmationPresented) {
+            Button("Annuler", role: .cancel) {}
+            Button("Supprimer", role: .destructive) {
+                Task {
+                    await onDeleteManualMatch?()
+                }
+            }
+        } message: {
+            Text("Cette action est définitive.")
+        }
+        .sheet(isPresented: $isOpponentEditorPresented) {
+            EditOpponentNameSheet(initialValue: draftOpponentName) { updatedName in
+                draftOpponentName = updatedName
+            }
+            .presentationDetents([.medium])
         }
     }
 
@@ -3213,7 +3325,7 @@ private struct MatchDetailHeroCard: View {
     private var heroBack: some View {
         VStack(alignment: .leading, spacing: 18) {
             scoreEditorRow(title: homeTeamName, score: $draftHomeScore)
-            scoreEditorRow(title: awayTeamName, score: $draftAwayScore)
+            scoreEditorRow(title: awayScoreEditorTitle, score: $draftAwayScore, onEditTitle: opponentTitleEditAction)
 
             if allowsScorerEditing {
                 VStack(alignment: .leading, spacing: 12) {
@@ -3255,7 +3367,12 @@ private struct MatchDetailHeroCard: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    onApplyScoreEdit(draftHomeScore, draftAwayScore, scorerCounts)
+                    onApplyScoreEdit(
+                        draftHomeScore,
+                        draftAwayScore,
+                        scorerCounts,
+                        normalizedOpponentName
+                    )
                     isEditing = false
                 } label: {
                     Text("Valider")
@@ -3269,6 +3386,37 @@ private struct MatchDetailHeroCard: View {
                         )
                 }
                 .buttonStyle(.plain)
+            }
+
+            if showsDeleteAction, onDeleteManualMatch != nil {
+                Button(role: .destructive) {
+                    isDeleteConfirmationPresented = true
+                } label: {
+                    HStack(spacing: 10) {
+                        if isDeletingManualMatch {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "trash")
+                        }
+
+                        Text("Supprimer le match")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.red.opacity(0.22))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isDeletingManualMatch)
             }
         }
         .padding(.horizontal, 22)
@@ -3348,11 +3496,61 @@ private struct MatchDetailHeroCard: View {
             }
     }
 
-    private func scoreEditorRow(title: String, score: Binding<Int>) -> some View {
+    private var displayedOpponentName: String {
+        let trimmed = draftOpponentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Adversaire" : trimmed
+    }
+
+    private var normalizedOpponentName: String? {
+        guard allowsOpponentEditing else { return match.opponentName }
+        let trimmed = draftOpponentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            let current = match.opponentName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return current.isEmpty ? nil : current
+        }
+        return trimmed
+    }
+
+    private var awayScoreEditorTitle: String {
+        allowsOpponentEditing ? displayedOpponentName : awayTeamName
+    }
+
+    private var opponentTitleEditAction: (() -> Void)? {
+        guard allowsOpponentEditing else { return nil }
+        return presentOpponentEditor
+    }
+
+    private func presentOpponentEditor() {
+        isOpponentEditorPresented = true
+    }
+
+    private func scoreEditorRow(title: String, score: Binding<Int>, onEditTitle: (() -> Void)? = nil) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 0)
+
+                if let onEditTitle {
+                    Button(action: onEditTitle) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(
+                                Circle()
+                                    .fill(.white.opacity(0.14))
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(.white.opacity(0.18), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
 
             HStack(spacing: 12) {
                 scoreStepperButton(systemName: "minus") {
@@ -3420,6 +3618,8 @@ private struct MatchDetailHeroCard: View {
     private func syncDraftFromMatch() {
         draftHomeScore = homeScore
         draftAwayScore = awayScore
+        draftOpponentName = match.opponentName ?? ""
+        isOpponentEditorPresented = false
         scorerCounts = Dictionary(
             uniqueKeysWithValues: availableScorerIDs.map { playerID in
                 let count = match.scorers.filter { $0.side == "home" && $0.playerId == playerID }.count
@@ -3457,6 +3657,50 @@ private struct MatchDetailTeamColumn: View {
                 .lineLimit(3)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct EditOpponentNameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let onSave: (String) -> Void
+    @State private var value: String
+
+    init(initialValue: String, onSave: @escaping (String) -> Void) {
+        self.onSave = onSave
+        _value = State(initialValue: initialValue)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Adversaire") {
+                    TextField("Nom de l'adversaire", text: $value)
+                        .textInputAutocapitalization(.words)
+                        .disableAutocorrection(true)
+                }
+            }
+            .navigationTitle("Modifier")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Valider") {
+                        onSave(trimmedValue)
+                        dismiss()
+                    }
+                    .disabled(trimmedValue.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var trimmedValue: String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

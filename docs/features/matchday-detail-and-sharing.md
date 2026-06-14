@@ -68,6 +68,8 @@ Restrictions: API contract complexity.
 ## 7. Functional Behavior
 - UI behavior: multi-sheet workflow with nested editors.
 - Actions: create/update/delete matchday and matches, set absences, share.
+- Manual plateau matches support opponent rename from the quick score/scorer card and deletion behind an explicit confirmation.
+- Rotation/planning matches keep their regular score/composition workflow and do not expose those manual-only destructive/editing shortcuts.
 - States: loading, editing, persisting, sheet-specific error.
 - Conditions: role/scope authorization.
 - Validations: payload normalization before updates.
@@ -125,6 +127,7 @@ Constraints: backend scope and relation constraints.
 
 ## 17. UX Requirements
 - Feedback: visible persistence indicators per sheet.
+- Manual match deletion must require a confirmation step and return the coach to a coherent matchday list state.
 - Empty states: no matches configured.
 - Loading: initial and incremental refresh indicators.
 - Responsive: native sheets and lists adapt to device.
