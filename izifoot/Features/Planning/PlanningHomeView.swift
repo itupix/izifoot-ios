@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class PlanningHomeViewModel: ObservableObject {
+    @Published private(set) var club: Club?
+    @Published private(set) var seasons: [Season] = []
     @Published private(set) var trainings: [Training] = []
     @Published private(set) var matchdays: [Matchday] = []
     @Published private(set) var isLoading = false
@@ -15,6 +17,8 @@ final class PlanningHomeViewModel: ObservableObject {
     }
 
     private struct PlanningHomeCachePayload: Codable {
+        let club: Club?
+        let seasons: [Season]
         let trainings: [Training]
         let matchdays: [Matchday]
     }
@@ -23,6 +27,8 @@ final class PlanningHomeViewModel: ObservableObject {
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(PlanningHomeCachePayload.self, forKey: cacheKey) {
+            club = cached.club
+            seasons = cached.seasons
             trainings = cached.trainings
             matchdays = cached.matchdays
             hasCachedData = true
@@ -30,17 +36,44 @@ final class PlanningHomeViewModel: ObservableObject {
         }
 
         do {
+            async let clubTask = api.myClub()
             async let trainingsTask = api.allTrainings()
             async let matchdaysTask = api.allMatchdays()
+            let fetchedClub = try await clubTask
+            club = fetchedClub
+            if let fetchedSeasons = try? await api.allClubSeasons() {
+                seasons = Self.mergedSeasons(
+                    fetchedSeasons,
+                    currentSeason: fetchedClub.currentSeason
+                )
+            } else {
+                seasons = Self.mergedSeasons([], currentSeason: fetchedClub.currentSeason)
+            }
             trainings = try await trainingsTask.sorted { $0.date > $1.date }
             matchdays = try await matchdaysTask.sorted { $0.date > $1.date }
             await PersistentDataCache.shared.write(
-                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                PlanningHomeCachePayload(
+                    club: club,
+                    seasons: seasons,
+                    trainings: trainings,
+                    matchdays: matchdays
+                ),
                 forKey: cacheKey
             )
             errorMessage = nil
         } catch {
             if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private static func mergedSeasons(_ seasons: [Season], currentSeason: Season?) -> [Season] {
+        var merged = seasons
+        if let currentSeason,
+           !merged.contains(where: { $0.id == currentSeason.id }) {
+            merged.insert(currentSeason, at: 0)
+        }
+        return merged.sorted { lhs, rhs in
+            lhs.startDate > rhs.startDate
         }
     }
 
@@ -53,7 +86,12 @@ final class PlanningHomeViewModel: ObservableObject {
             )
             trainings.insert(newTraining, at: 0)
             await PersistentDataCache.shared.write(
-                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                PlanningHomeCachePayload(
+                    club: club,
+                    seasons: seasons,
+                    trainings: trainings,
+                    matchdays: matchdays
+                ),
                 forKey: cacheKey
             )
         } catch {
@@ -83,7 +121,12 @@ final class PlanningHomeViewModel: ObservableObject {
             )
             matchdays.insert(newMatchday, at: 0)
             await PersistentDataCache.shared.write(
-                PlanningHomeCachePayload(trainings: trainings, matchdays: matchdays),
+                PlanningHomeCachePayload(
+                    club: club,
+                    seasons: seasons,
+                    trainings: trainings,
+                    matchdays: matchdays
+                ),
                 forKey: cacheKey
             )
         } catch {
@@ -117,6 +160,7 @@ struct PlanningHomeView: View {
     @StateObject private var viewModel = PlanningHomeViewModel()
     @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: nil)
     @State private var isDatePickerPresented = false
+    @State private var isTrainingCreationConfirmationPresented = false
     @State private var isCompetitionSheetPresented = false
     @State private var competitionLocation = ""
     @State private var competitionType: CompetitionType = .plateau
@@ -127,28 +171,16 @@ struct PlanningHomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    pageHeader
                     dateHeader
 
                     PlanningSectionCard(
                         title: "Entraînements",
                         actionTitle: teamScopedWritable ? "Ajouter" : nil,
                         onAction: teamScopedWritable ? {
-                            Task {
-                                await viewModel.createTraining(
-                                    date: selectedDate,
-                                    teamID: teamScopeStore.selectedTeamID,
-                                    teamName: selectedTeamName,
-                                    cacheKey: dataCacheKey
-                                )
-                            }
+                            isTrainingCreationConfirmationPresented = true
                         } : nil
                     ) {
-                        if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
-                            Text("Sélectionnez une équipe active pour modifier les données.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
                         if dayTrainings.isEmpty {
                             Text("Aucun entraînement ce jour.")
                                 .font(.subheadline)
@@ -247,7 +279,6 @@ struct PlanningHomeView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 20)
             }
-            .navigationTitle("Planning")
             .appChrome()
             .refreshable {
                 await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
@@ -287,6 +318,26 @@ struct PlanningHomeView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .confirmationDialog(
+                "Ajouter un entraînement ?",
+                isPresented: $isTrainingCreationConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Confirmer") {
+                    Task {
+                        await viewModel.createTraining(
+                            date: selectedDate,
+                            teamID: teamScopeStore.selectedTeamID,
+                            teamName: selectedTeamName,
+                            cacheKey: dataCacheKey
+                        )
+                    }
+                }
+
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Un entraînement sera ajouté pour le \(PlanningDateHelpers.title(for: selectedDate)).")
+            }
             .alert("Erreur", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },
                 set: { _ in viewModel.errorMessage = nil }
@@ -313,8 +364,16 @@ struct PlanningHomeView: View {
             Button {
                 selectedDate = PlanningDateHelpers.today
             } label: {
-                Text(isTodaySelected ? "Aujourd'hui" : PlanningDateHelpers.title(for: selectedDate))
-                    .font(.headline)
+                VStack(spacing: 2) {
+                    Text(PlanningDateHelpers.title(for: selectedDate))
+                        .font(.headline)
+
+                    if isTodaySelected {
+                        Text("Aujourd'hui")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -342,6 +401,28 @@ struct PlanningHomeView: View {
                 .buttonBorderShape(.circle)
             }
         }
+    }
+
+    private var pageHeader: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 12) {
+            Text("Planning")
+                .font(.system(size: 40, weight: .black, design: .rounded))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 12)
+            Text(planningSeasonLabel)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
+    private var planningSeasonLabel: String {
+        if let season = SeasonSupport.matchingSeason(in: viewModel.seasons, for: selectedDate) {
+            return season.label
+        }
+
+        return SeasonSupport.displayWindow(for: selectedDate, config: viewModel.club?.seasonConfig).label
     }
 
     private var writable: Bool {
@@ -480,9 +561,6 @@ struct PlanningHomeView: View {
             coachScoped = items
         }
 
-        if requiresSelection && teamScopeStore.selectedTeamID == nil {
-            return []
-        }
         guard let selectedTeamID = teamScopeStore.selectedTeamID else {
             return coachScoped
         }

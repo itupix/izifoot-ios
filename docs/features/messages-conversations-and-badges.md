@@ -75,7 +75,7 @@ Restrictions: depends on message read state and API.
 - `invitationStatus: NONE` renders the row as disabled and non tappable, with an explicit invitation-required hint.
 - Direct coach conversations returned with `invitationStatus: PENDING` show a lightweight `Invitation en attente` hint in the list.
 - A previously reachable direct coach thread that now returns `403` is rendered as unavailable with the composer hidden and an in-thread invitation CTA offering QR code and link sharing.
-- Automations: badge updates via notification center.
+- Automations: badge updates via notification center, push arrival refresh, and foreground re-synchronization on app activation.
 
 ## 8. Data Model
 - `MessageConversation`, `ConversationMessage`, unread count response.
@@ -92,6 +92,9 @@ Constraints: role/team scoped.
 - If a stale coach thread still opens and returns `403`, the thread uses `playerId` plus the existing player invite endpoint to recover the flow.
 - Read/sent actions should influence unread badge state.
 - Conversation id contract from backend must stay stable.
+- Push permission changes made in iOS Settings must be re-synchronized on app activation so an already known APNs token can be disabled or re-enabled without forcing a new login.
+- A `MESSAGE` push must trigger a conversations refresh so the `Messages` tab badge reflects the unread state without requiring manual refresh.
+- The app icon badge must not be cleared on simple app activation; it is cleared only once the local unread state reaches zero.
 
 ## 10. State Machine
 - Conversation states: unloaded/loaded/error.
@@ -160,6 +163,8 @@ Constraints: role/team scoped.
 4. Pending coach conversations display `Invitation en attente` in the list.
 5. Unread badge updates after reads/sends and ignores disabled coach conversations.
 6. A stale direct coach thread that becomes unavailable hides the composer and shows invitation recovery actions in place of the composer.
+7. If a user first refuses notifications and later enables them in iOS Settings, the app re-synchronizes the push token state and notifications can resume without reconnecting the account.
+8. When a `MESSAGE` push arrives, the `Messages` tab badge becomes visible from refreshed unread state, and the app icon badge remains visible until unread messages are cleared.
 
 ## 21. Test Scenarios
 - Happy path: send message in a coach conversation.

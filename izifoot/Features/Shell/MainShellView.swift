@@ -51,8 +51,8 @@ struct MainShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .messagesUnreadCountDidChange)) { output in
             let count = (output.userInfo?["count"] as? Int) ?? 0
             unreadMessagesCount = max(0, count)
-            if count == 0 {
-                UIApplication.shared.applicationIconBadgeNumber = 0
+            Task { @MainActor in
+                PushNotificationManager.shared.syncApplicationBadge(unreadCount: unreadMessagesCount)
             }
         }
     }

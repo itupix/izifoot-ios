@@ -49,6 +49,15 @@ extension Error {
         let nsError = self as NSError
         return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
+
+    var isMissingClubSeasonsEndpoint: Bool {
+        guard let apiError = self as? APIError else { return false }
+        guard case let .server(status, message) = apiError else { return false }
+        guard status == 404 else { return false }
+        let normalizedMessage = message.lowercased()
+        return normalizedMessage.contains("cannot get /clubs/me/seasons")
+            || normalizedMessage.contains("cannot get /clubs/me/seasons?".lowercased())
+    }
 }
 
 protocol APIClientProtocol {

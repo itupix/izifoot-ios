@@ -272,10 +272,30 @@ struct ConversationMessagesResponse: Codable {
     let items: [ConversationMessage]
 }
 
+struct ClubSeasonConfig: Codable {
+    let startMonth: Int
+    let startDay: Int
+    let endMonth: Int
+    let endDay: Int
+    let timezone: String?
+}
+
+struct Season: Codable, Identifiable {
+    let id: String
+    let clubId: String
+    let key: String
+    let label: String
+    let startDate: String
+    let endDate: String
+    let isCurrent: Bool?
+}
+
 struct Club: Codable, Identifiable {
     let id: String
     let name: String
     let createdAt: String?
+    let seasonConfig: ClubSeasonConfig?
+    let currentSeason: Season?
 }
 
 struct Team: Codable, Identifiable {
@@ -456,6 +476,8 @@ struct Player: Decodable, Identifiable {
     let clubName: String?
     let teamId: String?
     let teamName: String?
+    let isActive: Bool
+    let deactivatedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -484,6 +506,10 @@ struct Player: Decodable, Identifiable {
         case team_id
         case teamName
         case team_name
+        case isActive
+        case is_active
+        case deactivatedAt
+        case deactivated_at
     }
 
     init(from decoder: Decoder) throws {
@@ -515,6 +541,11 @@ struct Player: Decodable, Identifiable {
             ?? container.decodeIfPresent(String.self, forKey: .team_id)
         teamName = try? container.decodeIfPresent(String.self, forKey: .teamName)
             ?? container.decodeIfPresent(String.self, forKey: .team_name)
+        isActive = (try? container.decodeIfPresent(Bool.self, forKey: .isActive))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .is_active))
+            ?? true
+        deactivatedAt = (try? container.decodeIfPresent(String.self, forKey: .deactivatedAt))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .deactivated_at))
     }
 
     init(
@@ -533,7 +564,9 @@ struct Player: Decodable, Identifiable {
         clubId: String? = nil,
         clubName: String? = nil,
         teamId: String? = nil,
-        teamName: String? = nil
+        teamName: String? = nil,
+        isActive: Bool = true,
+        deactivatedAt: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -551,6 +584,8 @@ struct Player: Decodable, Identifiable {
         self.clubName = clubName
         self.teamId = teamId
         self.teamName = teamName
+        self.isActive = isActive
+        self.deactivatedAt = deactivatedAt
     }
 }
 
@@ -587,6 +622,8 @@ struct CoachInviteActionResponse: Decodable {
 struct Training: Codable, Identifiable {
     let id: String
     let date: String
+    let seasonId: String?
+    let season: Season?
     let endTime: String?
     let status: String?
     let teamId: String?
@@ -618,6 +655,8 @@ struct TrainingIntentResponse: Codable {
 struct Matchday: Codable, Identifiable {
     let id: String
     let date: String
+    let seasonId: String?
+    let season: Season?
     let lieu: String?
     let address: String?
     let startTime: String?
@@ -811,8 +850,11 @@ struct MatchTeamLite: Codable, Identifiable {
 struct MatchLite: Decodable, Identifiable {
     let id: String
     let createdAt: String
+    let date: String?
     let type: String
     let matchdayId: String?
+    let seasonId: String?
+    let season: Season?
     let rotationGameKey: String?
     let status: String?
     let played: Bool?
@@ -827,9 +869,13 @@ struct MatchLite: Decodable, Identifiable {
         case id
         case createdAt
         case created_at
+        case date
         case type
         case matchdayId
         case matchday_id
+        case seasonId
+        case season_id
+        case season
         case rotationGameKey
         case rotation_game_key
         case status
@@ -850,9 +896,13 @@ struct MatchLite: Decodable, Identifiable {
         createdAt = (try? container.decode(String.self, forKey: .createdAt))
             ?? (try? container.decode(String.self, forKey: .created_at))
             ?? ""
+        date = try? container.decodeIfPresent(String.self, forKey: .date)
         type = try container.decode(String.self, forKey: .type)
         matchdayId = (try? container.decodeIfPresent(String.self, forKey: .matchdayId))
             ?? (try? container.decodeIfPresent(String.self, forKey: .matchday_id))
+        seasonId = (try? container.decodeIfPresent(String.self, forKey: .seasonId))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .season_id))
+        season = try? container.decodeIfPresent(Season.self, forKey: .season)
         rotationGameKey = (try? container.decodeIfPresent(String.self, forKey: .rotationGameKey))
             ?? (try? container.decodeIfPresent(String.self, forKey: .rotation_game_key))
         status = try? container.decodeIfPresent(String.self, forKey: .status)

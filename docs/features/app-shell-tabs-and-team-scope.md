@@ -90,6 +90,8 @@ Constraints: team membership.
 - Default tab derived from account role.
 - Team selector availability depends on role and team context.
 - Unread badge should reflect notifications and resets.
+- A `MESSAGE` push or a return to foreground should re-synchronize the shell badge state before the user manually opens the `Messages` tab.
+- The app icon badge should only reset after unread message state returns to zero, not on every app activation.
 
 ## 10. State Machine
 - Shell states: `INIT` -> `TAB_READY` -> `TEAM_SCOPE_READY`.
@@ -152,7 +154,8 @@ Constraints: team membership.
 1. Role-based tabs are correct for each user role.
 2. Team switching updates API scope context.
 3. Unread badges update from notifications.
-4. Unauthorized tabs are not exposed.
+4. The `Messages` tab badge and app icon badge stay aligned with unread message state after push delivery and app reactivation.
+5. Unauthorized tabs are not exposed.
 
 ## 21. Test Scenarios
 - Happy path: coach switches team and navigates planning/messages.

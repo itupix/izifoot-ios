@@ -9,6 +9,8 @@ final class PushNotificationManager: NSObject {
     private var authenticatedUserID: String?
     private var deviceTokenHex: String?
     private var lastSyncedKey: String?
+    private var isPushPermissionEnabled = false
+    private var didResetBadgeAfterUnreadClear = false
     private var isConfigured = false
     private var retryTask: Task<Void, Never>?
 
@@ -37,7 +39,6 @@ final class PushNotificationManager: NSObject {
         }
         guard userID != nil else { return }
         requestAuthorizationAndRegisterIfNeeded()
-        Task { await self.syncTokenIfPossible() }
     }
 
     func handleRegisteredDeviceToken(_ tokenData: Data) {
@@ -50,21 +51,25 @@ final class PushNotificationManager: NSObject {
 
     private func requestAuthorizationAndRegisterIfNeeded() {
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
+        center.getNotificationSettings { [weak self] settings in
+            guard let self else { return }
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
+                self.updatePushPermissionState(enabled: true)
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
                 }
             case .notDetermined:
-                center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+                center.requestAuthorization(options: [.alert, .badge, .sound]) { [weak self] granted, _ in
+                    guard let self else { return }
+                    self.updatePushPermissionState(enabled: granted)
                     guard granted else { return }
                     DispatchQueue.main.async {
                         UIApplication.shared.registerForRemoteNotifications()
                     }
                 }
             default:
-                break
+                self.updatePushPermissionState(enabled: false)
             }
         }
     }
@@ -73,13 +78,16 @@ final class PushNotificationManager: NSObject {
         guard let userID = authenticatedUserID, !userID.isEmpty else { return }
         guard let token = deviceTokenHex, !token.isEmpty else { return }
 
-        let syncKey = "\(userID)|\(token)"
+        let enabled = isPushPermissionEnabled
+        let syncKey = "\(userID)|\(token)|\(enabled)"
         if lastSyncedKey == syncKey { return }
 
         do {
-            try await api.registerPushToken(token, enabled: true)
+            try await api.registerPushToken(token, enabled: enabled)
+            retryTask?.cancel()
+            retryTask = nil
             lastSyncedKey = syncKey
-            print("[push] token synced for user \(userID)")
+            print("[push] token sync (\(enabled ? "enabled" : "disabled")) for user \(userID)")
         } catch {
             print("[push] token sync failed: \(error.localizedDescription)")
             retryTask?.cancel()
@@ -91,11 +99,14 @@ final class PushNotificationManager: NSObject {
         }
     }
 
+    private func updatePushPermissionState(enabled: Bool) {
+        isPushPermissionEnabled = enabled
+        Task { await self.syncTokenIfPossible() }
+    }
+
     @objc private func handleDidBecomeActive() {
         requestAuthorizationAndRegisterIfNeeded()
-        UIApplication.shared.applicationIconBadgeNumber = 0
-        Task { await self.syncTokenIfPossible() }
-        Task { try? await self.api.resetPushBadge() }
+        notifyMessagesRefreshRequested()
     }
 
     func clearMessageNotifications(for conversationID: String?) {
@@ -113,15 +124,35 @@ final class PushNotificationManager: NSObject {
             if !identifiers.isEmpty {
                 center.removeDeliveredNotifications(withIdentifiers: identifiers)
             }
-
-            DispatchQueue.main.async {
-                UIApplication.shared.applicationIconBadgeNumber = 0
-            }
-
-            Task {
-                try? await self.api.resetPushBadge()
-            }
         }
+    }
+
+    @MainActor
+    func syncApplicationBadge(unreadCount: Int) {
+        let sanitizedCount = max(0, unreadCount)
+        if sanitizedCount > 0 {
+            didResetBadgeAfterUnreadClear = false
+            if UIApplication.shared.applicationIconBadgeNumber == 0 {
+                UIApplication.shared.applicationIconBadgeNumber = sanitizedCount
+            }
+            return
+        }
+
+        let shouldResetRemoteBadge = !didResetBadgeAfterUnreadClear
+        UIApplication.shared.applicationIconBadgeNumber = 0
+        guard shouldResetRemoteBadge else { return }
+
+        didResetBadgeAfterUnreadClear = true
+        Task { try? await self.api.resetPushBadge() }
+    }
+
+    private func notifyMessagesRefreshRequested() {
+        NotificationCenter.default.post(name: .messagesRefreshRequested, object: nil)
+    }
+
+    private func handleMessageNotificationIfNeeded(userInfo: [AnyHashable: Any]) {
+        guard (userInfo["type"] as? String) == "MESSAGE" else { return }
+        notifyMessagesRefreshRequested()
     }
 }
 
@@ -131,7 +162,17 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        handleMessageNotificationIfNeeded(userInfo: notification.request.content.userInfo)
         completionHandler([.banner, .sound, .badge, .list])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        handleMessageNotificationIfNeeded(userInfo: response.notification.request.content.userInfo)
+        completionHandler()
     }
 }
 

@@ -33,6 +33,13 @@ private let teamAgeCategoryOptions: [TeamAgeCategoryOption] = [
 private let teamAgeCategoryIndexByValue = Dictionary(uniqueKeysWithValues: teamAgeCategoryOptions.enumerated().map { ($0.element.value, $0.offset) })
 private let teamAgeCategoryLabelByValue = Dictionary(uniqueKeysWithValues: teamAgeCategoryOptions.map { ($0.value, $0.label) })
 private let teamGameFormatOptions = ["3v3", "5v5", "8v8", "11v11"]
+private let defaultClubSeasonConfig = ClubSeasonConfig(
+    startMonth: 8,
+    startDay: 1,
+    endMonth: 7,
+    endDay: 31,
+    timezone: "Europe/Paris"
+)
 
 private func normalizeCategoryToken(_ value: String) -> String {
     value
@@ -288,6 +295,18 @@ final class ClubHomeViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func updateSeason(config: ClubSeasonConfig) async -> Bool {
+        do {
+            let updatedClub = try await api.updateClubSeason(config: config)
+            club = updatedClub
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
+        }
+    }
+
     func coaches(for teamID: String) -> [Coach] {
         coaches.filter { $0.managedTeamIds.contains(teamID) }
     }
@@ -358,6 +377,7 @@ struct ClubHomeView: View {
     @StateObject private var viewModel = ClubHomeViewModel()
     @State private var isCreateTeamSheetPresented = false
     @State private var isRenameClubSheetPresented = false
+    @State private var isSeasonSheetPresented = false
     @State private var isAddCoachSheetPresented = false
     @State private var selectedTeamSheetTarget: TeamSheetTarget?
     @State private var coachPendingDelete: Coach?
@@ -368,8 +388,23 @@ struct ClubHomeView: View {
                 if let club = viewModel.club {
                     Section("Club") {
                         Label(club.name, systemImage: "building.2.crop.circle")
+                        if let season = club.currentSeason {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Saison active du club")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(season.label)
+                                    .font(.headline)
+                                Text("\(DateFormatters.displayDateOnly(season.startDate)) - \(DateFormatters.displayDateOnly(season.endDate))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         Button("Renommer le club") {
                             isRenameClubSheetPresented = true
+                        }
+                        Button("Configurer la saison") {
+                            isSeasonSheetPresented = true
                         }
                     }
                 }
@@ -474,6 +509,17 @@ struct ClubHomeView: View {
                         }
                     }
                     .presentationDetents([.fraction(0.3), .medium])
+                }
+            }
+            .sheet(isPresented: $isSeasonSheetPresented) {
+                if let club = viewModel.club {
+                    SeasonConfigSheet(initialConfig: club.seasonConfig ?? defaultClubSeasonConfig) { config in
+                        let success = await viewModel.updateSeason(config: config)
+                        if success {
+                            isSeasonSheetPresented = false
+                        }
+                    }
+                    .presentationDetents([.medium])
                 }
             }
             .sheet(isPresented: $isAddCoachSheetPresented) {
@@ -906,6 +952,123 @@ struct RenameClubSheet: View {
                 }
             }
         }
+    }
+}
+
+struct SeasonConfigSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let initialConfig: ClubSeasonConfig
+    let onSubmit: (ClubSeasonConfig) async -> Void
+
+    private let referenceYear: Int
+    @State private var startDate: Date
+    @State private var endDate: Date
+    @State private var isSubmitting = false
+
+    init(initialConfig: ClubSeasonConfig, onSubmit: @escaping (ClubSeasonConfig) async -> Void) {
+        self.initialConfig = initialConfig
+        self.onSubmit = onSubmit
+        let referenceYear = SeasonSupport.currentNonLeapReferenceYear()
+        self.referenceYear = referenceYear
+        let dates = SeasonSupport.referenceDates(for: initialConfig, referenceYear: referenceYear)
+        _startDate = State(initialValue: dates.startDate)
+        _endDate = State(initialValue: dates.endDate)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Fenêtre de saison") {
+                    DatePicker(
+                        selection: $startDate,
+                        in: SeasonSupport.validStartDateRange(referenceYear: referenceYear),
+                        displayedComponents: [.date]
+                    ) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Début de saison")
+                            Text(SeasonSupport.monthDayLabel(for: startDate))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .datePickerStyle(.compact)
+
+                    if let endDateRange {
+                        DatePicker(
+                            selection: $endDate,
+                            in: endDateRange,
+                            displayedComponents: [.date]
+                        ) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Fin de saison")
+                                Text(SeasonSupport.monthDayLabel(for: endDate))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .datePickerStyle(.compact)
+                    }
+                }
+
+                Section("Aperçu") {
+                    Text("La saison se répète chaque année du \(SeasonSupport.monthDayLabel(for: startDate)) au \(SeasonSupport.monthDayLabel(for: endDate)).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("L'année affichée sert seulement à choisir le jour et le mois.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Ces dates s'appliquent aux saisons futures si des saisons existantes contiennent déjà des données.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if !isValidRange {
+                        Text("La fin de saison doit tomber avant le début dans l'année civile suivante.")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Saison")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: startDate) { _, newValue in
+                guard let endDateRange = SeasonSupport.validEndDateRange(for: newValue) else { return }
+                if !endDateRange.contains(endDate) {
+                    endDate = endDateRange.upperBound
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") {
+                        dismiss()
+                    }
+                    .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSubmitting ? "Enregistrement…" : "Enregistrer") {
+                        let nextConfig = SeasonSupport.seasonConfig(
+                            from: startDate,
+                            endDate: endDate,
+                            timezone: initialConfig.timezone ?? "Europe/Paris"
+                        )
+                        isSubmitting = true
+                        Task {
+                            await onSubmit(nextConfig)
+                            isSubmitting = false
+                        }
+                    }
+                    .disabled(isSubmitting || !isValidRange)
+                }
+            }
+        }
+    }
+
+    private var endDateRange: ClosedRange<Date>? {
+        SeasonSupport.validEndDateRange(for: startDate)
+    }
+
+    private var isValidRange: Bool {
+        guard let endDateRange else { return false }
+        return endDateRange.contains(endDate)
     }
 }
 

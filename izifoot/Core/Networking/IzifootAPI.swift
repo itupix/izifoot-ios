@@ -52,6 +52,12 @@ struct ShareResponse: Codable {
     let expiresAt: String?
 }
 
+enum PlayerRosterStatus: String {
+    case active
+    case inactive
+    case all
+}
+
 final class IzifootAPI {
     private let client: APIClientProtocol
 
@@ -163,6 +169,27 @@ final class IzifootAPI {
         try await client.get(APIRoutes.Clubs.me, responseType: Club.self)
     }
 
+    func clubSeasons(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Season> {
+        try await client.get(
+            paginatedPath(APIRoutes.Clubs.seasons, limit: limit, offset: offset),
+            responseType: PaginatedResponse<Season>.self
+        )
+    }
+
+    func allClubSeasons(pageSize: Int = 100) async throws -> [Season] {
+        var allItems: [Season] = []
+        var offset = 0
+
+        while true {
+            let response = try await clubSeasons(limit: pageSize, offset: offset)
+            allItems.append(contentsOf: response.items)
+            guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
+            offset += response.pagination.returned
+        }
+
+        return allItems
+    }
+
     func renameClub(name: String) async throws -> Club {
         struct RenameClubPayload: Encodable {
             let name: String
@@ -171,6 +198,18 @@ final class IzifootAPI {
         return try await client.put(
             APIRoutes.Clubs.me,
             body: RenameClubPayload(name: name),
+            responseType: Club.self
+        )
+    }
+
+    func updateClubSeason(config: ClubSeasonConfig) async throws -> Club {
+        struct SeasonPayload: Encodable {
+            let seasonConfig: ClubSeasonConfig
+        }
+
+        return try await client.put(
+            APIRoutes.Clubs.me,
+            body: SeasonPayload(seasonConfig: config),
             responseType: Club.self
         )
     }
@@ -283,19 +322,31 @@ final class IzifootAPI {
         _ = try await client.delete(APIRoutes.Coaches.byID(id), responseType: EmptyResponse.self)
     }
 
-    func players(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Player> {
+    func players(
+        limit: Int = 50,
+        offset: Int = 0,
+        rosterStatus: PlayerRosterStatus = .active
+    ) async throws -> PaginatedResponse<Player> {
         try await client.get(
-            paginatedPath(APIRoutes.Players.list, limit: limit, offset: offset),
+            paginatedPath(
+                APIRoutes.Players.list,
+                limit: limit,
+                offset: offset,
+                extraQueryItems: [URLQueryItem(name: "rosterStatus", value: rosterStatus.rawValue)]
+            ),
             responseType: PaginatedResponse<Player>.self
         )
     }
 
-    func allPlayers(pageSize: Int = 100) async throws -> [Player] {
+    func allPlayers(
+        pageSize: Int = 100,
+        rosterStatus: PlayerRosterStatus = .active
+    ) async throws -> [Player] {
         var allItems: [Player] = []
         var offset = 0
 
         while true {
-            let response = try await players(limit: pageSize, offset: offset)
+            let response = try await players(limit: pageSize, offset: offset, rosterStatus: rosterStatus)
             allItems.append(contentsOf: response.items)
             guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
             offset += response.pagination.returned
@@ -327,6 +378,18 @@ final class IzifootAPI {
 
     func deletePlayerParent(playerID: String, parentID: String) async throws {
         _ = try await client.delete(APIRoutes.Players.parentByID(playerID, parentID: parentID), responseType: EmptyResponse.self)
+    }
+
+    func updatePlayerRosterStatus(id: String, isActive: Bool) async throws -> Player {
+        struct Payload: Encodable {
+            let isActive: Bool
+        }
+
+        return try await client.put(
+            APIRoutes.Players.rosterStatus(id),
+            body: Payload(isActive: isActive),
+            responseType: Player.self
+        )
     }
 
     func teamMessages() async throws -> [TeamMessage] {
@@ -493,19 +556,24 @@ final class IzifootAPI {
         )
     }
 
-    func trainings(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Training> {
+    func trainings(limit: Int = 50, offset: Int = 0, seasonID: String? = nil) async throws -> PaginatedResponse<Training> {
         try await client.get(
-            paginatedPath(APIRoutes.Trainings.list, limit: limit, offset: offset),
+            paginatedPath(
+                APIRoutes.Trainings.list,
+                limit: limit,
+                offset: offset,
+                extraQueryItems: seasonID.map { [URLQueryItem(name: "seasonId", value: $0)] } ?? []
+            ),
             responseType: PaginatedResponse<Training>.self
         )
     }
 
-    func allTrainings(pageSize: Int = 100) async throws -> [Training] {
+    func allTrainings(seasonID: String? = nil, pageSize: Int = 100) async throws -> [Training] {
         var allItems: [Training] = []
         var offset = 0
 
         while true {
-            let response = try await trainings(limit: pageSize, offset: offset)
+            let response = try await trainings(limit: pageSize, offset: offset, seasonID: seasonID)
             allItems.append(contentsOf: response.items)
             guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
             offset += response.pagination.returned
@@ -559,19 +627,24 @@ final class IzifootAPI {
         )
     }
 
-    func matchdays(limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<Matchday> {
+    func matchdays(limit: Int = 50, offset: Int = 0, seasonID: String? = nil) async throws -> PaginatedResponse<Matchday> {
         try await client.get(
-            paginatedPath(APIRoutes.Matchday.list, limit: limit, offset: offset),
+            paginatedPath(
+                APIRoutes.Matchday.list,
+                limit: limit,
+                offset: offset,
+                extraQueryItems: seasonID.map { [URLQueryItem(name: "seasonId", value: $0)] } ?? []
+            ),
             responseType: PaginatedResponse<Matchday>.self
         )
     }
 
-    func allMatchdays(pageSize: Int = 100) async throws -> [Matchday] {
+    func allMatchdays(seasonID: String? = nil, pageSize: Int = 100) async throws -> [Matchday] {
         var allItems: [Matchday] = []
         var offset = 0
 
         while true {
-            let response = try await matchdays(limit: pageSize, offset: offset)
+            let response = try await matchdays(limit: pageSize, offset: offset, seasonID: seasonID)
             allItems.append(contentsOf: response.items)
             guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
             offset += response.pagination.returned
@@ -633,22 +706,25 @@ final class IzifootAPI {
         )
     }
 
-    func matches(matchdayID: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<MatchLite> {
+    func matches(matchdayID: String? = nil, seasonID: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> PaginatedResponse<MatchLite> {
+        var extraQueryItems: [URLQueryItem] = []
+        if let matchdayID { extraQueryItems.append(URLQueryItem(name: "matchdayId", value: matchdayID)) }
+        if let seasonID { extraQueryItems.append(URLQueryItem(name: "seasonId", value: seasonID)) }
         let path = paginatedPath(
             APIRoutes.Matches.list,
             limit: limit,
             offset: offset,
-            extraQueryItems: matchdayID.map { [URLQueryItem(name: "matchdayId", value: $0)] } ?? []
+            extraQueryItems: extraQueryItems
         )
         return try await client.get(path, responseType: PaginatedResponse<MatchLite>.self)
     }
 
-    func allMatches(matchdayID: String? = nil, pageSize: Int = 100) async throws -> [MatchLite] {
+    func allMatches(matchdayID: String? = nil, seasonID: String? = nil, pageSize: Int = 100) async throws -> [MatchLite] {
         var allItems: [MatchLite] = []
         var offset = 0
 
         while true {
-            let response = try await matches(matchdayID: matchdayID, limit: pageSize, offset: offset)
+            let response = try await matches(matchdayID: matchdayID, seasonID: seasonID, limit: pageSize, offset: offset)
             allItems.append(contentsOf: response.items)
             guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
             offset += response.pagination.returned
@@ -979,19 +1055,24 @@ final class IzifootAPI {
         )
     }
 
-    func attendance(limit: Int = 100, offset: Int = 0) async throws -> PaginatedResponse<AttendanceRow> {
+    func attendance(limit: Int = 100, offset: Int = 0, seasonID: String? = nil) async throws -> PaginatedResponse<AttendanceRow> {
         try await client.get(
-            paginatedPath(APIRoutes.Attendance.list, limit: limit, offset: offset),
+            paginatedPath(
+                APIRoutes.Attendance.list,
+                limit: limit,
+                offset: offset,
+                extraQueryItems: seasonID.map { [URLQueryItem(name: "seasonId", value: $0)] } ?? []
+            ),
             responseType: PaginatedResponse<AttendanceRow>.self
         )
     }
 
-    func allAttendance(pageSize: Int = 100) async throws -> [AttendanceRow] {
+    func allAttendance(seasonID: String? = nil, pageSize: Int = 100) async throws -> [AttendanceRow] {
         var allItems: [AttendanceRow] = []
         var offset = 0
 
         while true {
-            let response = try await attendance(limit: pageSize, offset: offset)
+            let response = try await attendance(limit: pageSize, offset: offset, seasonID: seasonID)
             allItems.append(contentsOf: response.items)
             guard response.pagination.returned >= response.pagination.limit, response.pagination.returned > 0 else { break }
             offset += response.pagination.returned

@@ -12,6 +12,9 @@
 		425440692F7FADFA00CD67E6 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4258FB8F2F748483006C5E2C /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		42731AD12F7FA47A009AA54F /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		42824AFD2FBB2DB100C20DA5 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		42824B6F2FBCEA2900C20DA5 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
+		42824BDD2FBCEA5500C20DA5 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4294DB6A2F77324B0077A058 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 		4294DBCC2F7EB1CA0077A058 /* izifoot.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = izifoot.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -67,6 +70,21 @@
 			sourceTree = "<group>";
 		};
 		42731AD32F7FA47A009AA54F /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		42824AFF2FBB2DB100C20DA5 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		42824B712FBCEA2900C20DA5 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
+			sourceTree = "<group>";
+		};
+		42824BDF2FBCEA5500C20DA5 /* Products */ = {
 			isa = PBXGroup;
 			name = Products;
 			sourceTree = "<group>";
@@ -139,14 +157,6 @@
 					ProjectRef = 4258FB8F2F748483006C5E2C /* izifoot.xcodeproj */;
 				},
 				{
-					ProductGroup = 4254406B2F7FADFA00CD67E6 /* Products */;
-					ProjectRef = 425440692F7FADFA00CD67E6 /* izifoot.xcodeproj */;
-				},
-				{
-					ProductGroup = 423BC0F92F71DF9D000C1FEC /* Products */;
-					ProjectRef = 423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */;
-				},
-				{
 					ProductGroup = 42731AD32F7FA47A009AA54F /* Products */;
 					ProjectRef = 42731AD12F7FA47A009AA54F /* izifoot.xcodeproj */;
 				},
@@ -157,6 +167,26 @@
 				{
 					ProductGroup = 4294DBCE2F7EB1CA0077A058 /* Products */;
 					ProjectRef = 4294DBCC2F7EB1CA0077A058 /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 4254406B2F7FADFA00CD67E6 /* Products */;
+					ProjectRef = 425440692F7FADFA00CD67E6 /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 423BC0F92F71DF9D000C1FEC /* Products */;
+					ProjectRef = 423BC0F72F71DF9D000C1FEC /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 42824AFF2FBB2DB100C20DA5 /* Products */;
+					ProjectRef = 42824AFD2FBB2DB100C20DA5 /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 42824B712FBCEA2900C20DA5 /* Products */;
+					ProjectRef = 42824B6F2FBCEA2900C20DA5 /* izifoot.xcodeproj */;
+				},
+				{
+					ProductGroup = 42824BDF2FBCEA5500C20DA5 /* Products */;
+					ProjectRef = 42824BDD2FBCEA5500C20DA5 /* izifoot.xcodeproj */;
 				},
 			);
 			projectRoot = "";
@@ -315,12 +345,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = izifoot/izifoot.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = XL553UCC9Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -333,6 +365,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.izifoot.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -350,12 +383,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = izifoot/izifoot.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = XL553UCC9Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -368,6 +403,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jeromeboukorras.izifoot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;

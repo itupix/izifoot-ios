@@ -42,6 +42,9 @@ final class PlayersHomeViewModel: ObservableObject {
         let isChild: Bool
         let parentContacts: [CachedParentContact]
         let teamId: String?
+        let teamName: String?
+        let isActive: Bool
+        let deactivatedAt: String?
     }
 
     private struct PlayersHomeCachePayload: Codable {
@@ -82,7 +85,10 @@ final class PlayersHomeViewModel: ObservableObject {
                             status: contact.status
                         )
                     },
-                    teamId: cached.teamId
+                    teamId: cached.teamId,
+                    teamName: cached.teamName,
+                    isActive: cached.isActive,
+                    deactivatedAt: cached.deactivatedAt
                 )
             }
             nextOffset = cached.nextOffset
@@ -92,7 +98,7 @@ final class PlayersHomeViewModel: ObservableObject {
         }
 
         do {
-            let response = try await api.players(limit: pageSize, offset: 0)
+            let response = try await api.players(limit: pageSize, offset: 0, rosterStatus: .all)
             players = response.items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
@@ -109,7 +115,7 @@ final class PlayersHomeViewModel: ObservableObject {
         defer { isLoadingMore = false }
 
         do {
-            let response = try await api.players(limit: pageSize, offset: nextOffset)
+            let response = try await api.players(limit: pageSize, offset: nextOffset, rosterStatus: .all)
             players.append(contentsOf: response.items)
             players.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             nextOffset = response.pagination.offset + response.pagination.returned
@@ -170,7 +176,10 @@ final class PlayersHomeViewModel: ObservableObject {
                                 status: contact.status
                             )
                         },
-                        teamId: player.teamId
+                        teamId: player.teamId,
+                        teamName: player.teamName,
+                        isActive: player.isActive,
+                        deactivatedAt: player.deactivatedAt
                     )
                 },
                 nextOffset: nextOffset,
@@ -217,130 +226,380 @@ final class TeamStatsViewModel: ObservableObject {
     @Published private(set) var scorers: [RankedStat] = []
     @Published private(set) var trainingPresence: [RankedStat] = []
     @Published private(set) var plateauPresence: [RankedStat] = []
+    @Published private(set) var seasons: [Season] = []
+    @Published var selectedSeasonID = ""
+    @Published private(set) var seasonLabel = ""
+    @Published private(set) var seasonRangeLabel = ""
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
+    private var loadedClub: Club?
+    private var usesLocalSeasonFallback = false
 
     init(api: IzifootAPI? = nil) {
         self.api = api ?? IzifootAPI()
     }
 
-    func load(players: [Player]) async {
+    func load(players: [Player], refreshSeasonCatalog: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
 
         do {
-            async let matchesTask = api.allMatches()
-            async let attendanceTask = api.allAttendance()
-
-            let matches = try await matchesTask
-            let attendance = try await attendanceTask
-
-            let playedMatches = matches.filter(Self.isPlayedMatch)
-            playedMatchesCount = playedMatches.count
-
-            var localWins = 0
-            var localDraws = 0
-            var localLosses = 0
-            var localGoalsFor = 0
-            var localGoalsAgainst = 0
-            var scorerTally: [String: Int] = [:]
-
-            for match in playedMatches {
-                let homeScore = match.teams.first(where: { $0.side == "home" })?.score ?? 0
-                let awayScore = match.teams.first(where: { $0.side == "away" })?.score ?? 0
-                localGoalsFor += homeScore
-                localGoalsAgainst += awayScore
-
-                if homeScore > awayScore {
-                    localWins += 1
-                } else if homeScore == awayScore {
-                    localDraws += 1
-                } else {
-                    localLosses += 1
-                }
-
-                for scorer in match.scorers where scorer.side == "home" {
-                    scorerTally[scorer.playerId, default: 0] += 1
-                }
+            let shouldRefreshSeasonCatalog = refreshSeasonCatalog || seasons.isEmpty || loadedClub == nil
+            let club: Club
+            if shouldRefreshSeasonCatalog {
+                club = try await api.myClub()
+                loadedClub = club
+            } else if let loadedClub {
+                club = loadedClub
+            } else {
+                club = try await api.myClub()
+                loadedClub = club
             }
 
-            let nameByID = Dictionary(uniqueKeysWithValues: players.map { ($0.id, $0.name) })
-            let sortedPlayers = players.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-            wins = localWins
-            draws = localDraws
-            losses = localLosses
-            totalFor = localGoalsFor
-            totalAgainst = localGoalsAgainst
-
-            let sortedPlayedMatches = playedMatches.sorted {
-                $0.createdAt < $1.createdAt
-            }
-            avgForPerMatch = cumulativeAverageSeries(matches: sortedPlayedMatches, side: "home")
-            avgAgainstPerMatch = cumulativeAverageSeries(matches: sortedPlayedMatches, side: "away")
-
-            let matchdays = try await api.allMatchdays()
-            let plateauInfoByID = Dictionary(uniqueKeysWithValues: matchdays.map { ($0.id, $0.lieu ?? "Plateau") })
-            let groupedPlateaux = groupPlateauMatches(from: sortedPlayedMatches, plateauLabelByID: plateauInfoByID)
-            avgForPerPlateau = cumulativePlateauAverageSeries(groups: groupedPlateaux, side: "home")
-            avgAgainstPerPlateau = cumulativePlateauAverageSeries(groups: groupedPlateaux, side: "away")
-            plateauBands = groupedPlateaux.enumerated().map { index, group in
-                PlateauBand(
-                    index: index + 1,
-                    label: group.label,
-                    color: Self.plateauPalette[index % Self.plateauPalette.count]
-                )
-            }
-
-            scorers = scorerTally
-                .map { playerID, goals in
-                    RankedStat(id: playerID, name: nameByID[playerID] ?? playerID, value: goals)
-                }
-                .sorted {
-                    if $0.value == $1.value {
-                        return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            if shouldRefreshSeasonCatalog {
+                do {
+                    let fetchedSeasons = try await api.allClubSeasons()
+                    usesLocalSeasonFallback = false
+                    seasons = Self.mergedSeasons(fetchedSeasons, currentSeason: club.currentSeason)
+                } catch {
+                    if error.isMissingClubSeasonsEndpoint {
+                        usesLocalSeasonFallback = true
+                    } else {
+                        throw error
                     }
-                    return $0.value > $1.value
+                }
+            }
+
+            if usesLocalSeasonFallback {
+                async let matchesTask = api.allMatches()
+                async let attendanceTask = api.allAttendance()
+                async let matchdaysTask = api.allMatchdays()
+                async let trainingsTask = api.allTrainings()
+
+                let matches = try await matchesTask
+                let attendance = try await attendanceTask
+                let matchdays = try await matchdaysTask
+                let trainings = try await trainingsTask
+
+                if shouldRefreshSeasonCatalog || seasons.isEmpty {
+                    seasons = Self.fallbackSeasons(
+                        club: club,
+                        matches: matches,
+                        matchdays: matchdays,
+                        trainings: trainings
+                    )
+                }
+                if selectedSeasonID.isEmpty || !seasons.contains(where: { $0.id == selectedSeasonID }) {
+                    selectedSeasonID = club.currentSeason?.id ?? seasons.first?.id ?? ""
                 }
 
-            let trainingCountByPlayer = Dictionary(grouping: attendance.filter { $0.present && $0.sessionType == "TRAINING" }, by: \.playerId)
-                .mapValues(\.count)
-            let plateauCountByPlayer = Dictionary(grouping: attendance.filter { $0.present && $0.sessionType == "PLATEAU" }, by: \.playerId)
-                .mapValues(\.count)
+                let selectedSeason = seasons.first(where: { $0.id == selectedSeasonID })
+                seasonLabel = selectedSeason?.label ?? ""
+                seasonRangeLabel = selectedSeason.map { SeasonSupport.rangeLabel(for: $0) } ?? ""
 
-            trainingPresence = sortedPlayers.map { player in
-                RankedStat(
-                    id: player.id,
-                    name: player.name,
-                    value: trainingCountByPlayer[player.id] ?? 0
+                let filteredTrainings = Self.filterTrainings(
+                    trainings,
+                    for: selectedSeason,
+                    config: club.seasonConfig
                 )
-            }
-            .sorted {
-                if $0.value == $1.value {
-                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                }
-                return $0.value > $1.value
-            }
-
-            plateauPresence = sortedPlayers.map { player in
-                RankedStat(
-                    id: player.id,
-                    name: player.name,
-                    value: plateauCountByPlayer[player.id] ?? 0
+                let filteredMatchdays = Self.filterMatchdays(
+                    matchdays,
+                    for: selectedSeason,
+                    config: club.seasonConfig
                 )
-            }
-            .sorted {
-                if $0.value == $1.value {
-                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                let filteredMatches = Self.filterMatches(
+                    matches,
+                    for: selectedSeason,
+                    config: club.seasonConfig
+                )
+                let filteredAttendance = Self.filterAttendance(
+                    attendance,
+                    trainings: filteredTrainings,
+                    matchdays: filteredMatchdays
+                )
+
+                applyStats(
+                    matches: filteredMatches,
+                    attendance: filteredAttendance,
+                    matchdays: filteredMatchdays,
+                    players: players
+                )
+            } else {
+                if selectedSeasonID.isEmpty || !seasons.contains(where: { $0.id == selectedSeasonID }) {
+                    selectedSeasonID = club.currentSeason?.id ?? seasons.first?.id ?? ""
                 }
-                return $0.value > $1.value
+
+                let selectedSeason = seasons.first(where: { $0.id == selectedSeasonID })
+                seasonLabel = selectedSeason?.label ?? ""
+                seasonRangeLabel = selectedSeason.map { SeasonSupport.rangeLabel(for: $0) } ?? ""
+                let effectiveSeasonID = selectedSeason?.id
+
+                async let matchesTask = api.allMatches(seasonID: effectiveSeasonID)
+                async let attendanceTask = api.allAttendance(seasonID: effectiveSeasonID)
+                async let matchdaysTask = api.allMatchdays(seasonID: effectiveSeasonID)
+
+                let matches = try await matchesTask
+                let attendance = try await attendanceTask
+                let matchdays = try await matchdaysTask
+
+                applyStats(
+                    matches: matches,
+                    attendance: attendance,
+                    matchdays: matchdays,
+                    players: players
+                )
             }
 
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func applyStats(
+        matches: [MatchLite],
+        attendance: [AttendanceRow],
+        matchdays: [Matchday],
+        players: [Player]
+    ) {
+        let playedMatches = matches.filter(Self.isPlayedMatch)
+        playedMatchesCount = playedMatches.count
+
+        var localWins = 0
+        var localDraws = 0
+        var localLosses = 0
+        var localGoalsFor = 0
+        var localGoalsAgainst = 0
+        var scorerTally: [String: Int] = [:]
+
+        for match in playedMatches {
+            let homeScore = match.teams.first(where: { $0.side == "home" })?.score ?? 0
+            let awayScore = match.teams.first(where: { $0.side == "away" })?.score ?? 0
+            localGoalsFor += homeScore
+            localGoalsAgainst += awayScore
+
+            if homeScore > awayScore {
+                localWins += 1
+            } else if homeScore == awayScore {
+                localDraws += 1
+            } else {
+                localLosses += 1
+            }
+
+            for scorer in match.scorers where scorer.side == "home" {
+                scorerTally[scorer.playerId, default: 0] += 1
+            }
+        }
+
+        let nameByID = Dictionary(uniqueKeysWithValues: players.map { ($0.id, $0.name) })
+        let sortedPlayers = players.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        wins = localWins
+        draws = localDraws
+        losses = localLosses
+        totalFor = localGoalsFor
+        totalAgainst = localGoalsAgainst
+
+        let sortedPlayedMatches = playedMatches.sorted {
+            $0.createdAt < $1.createdAt
+        }
+        avgForPerMatch = cumulativeAverageSeries(matches: sortedPlayedMatches, side: "home")
+        avgAgainstPerMatch = cumulativeAverageSeries(matches: sortedPlayedMatches, side: "away")
+
+        let plateauInfoByID = Dictionary(uniqueKeysWithValues: matchdays.map { ($0.id, $0.lieu ?? "Plateau") })
+        let groupedPlateaux = groupPlateauMatches(from: sortedPlayedMatches, plateauLabelByID: plateauInfoByID)
+        avgForPerPlateau = cumulativePlateauAverageSeries(groups: groupedPlateaux, side: "home")
+        avgAgainstPerPlateau = cumulativePlateauAverageSeries(groups: groupedPlateaux, side: "away")
+        plateauBands = groupedPlateaux.enumerated().map { index, group in
+            PlateauBand(
+                index: index + 1,
+                label: group.label,
+                color: Self.plateauPalette[index % Self.plateauPalette.count]
+            )
+        }
+
+        scorers = scorerTally
+            .map { playerID, goals in
+                RankedStat(id: playerID, name: nameByID[playerID] ?? playerID, value: goals)
+            }
+            .sorted {
+                if $0.value == $1.value {
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                return $0.value > $1.value
+            }
+
+        let trainingCountByPlayer = Dictionary(grouping: attendance.filter { $0.present && $0.sessionType.uppercased() == "TRAINING" }, by: \.playerId)
+            .mapValues(\.count)
+        let plateauCountByPlayer = Dictionary(grouping: attendance.filter { $0.present && ["PLATEAU", "MATCHDAY", "MATCH"].contains($0.sessionType.uppercased()) }, by: \.playerId)
+            .mapValues(\.count)
+
+        trainingPresence = sortedPlayers.map { player in
+            RankedStat(
+                id: player.id,
+                name: player.name,
+                value: trainingCountByPlayer[player.id] ?? 0
+            )
+        }
+        .sorted {
+            if $0.value == $1.value {
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            return $0.value > $1.value
+        }
+
+        plateauPresence = sortedPlayers.map { player in
+            RankedStat(
+                id: player.id,
+                name: player.name,
+                value: plateauCountByPlayer[player.id] ?? 0
+            )
+        }
+        .sorted {
+            if $0.value == $1.value {
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            return $0.value > $1.value
+        }
+    }
+
+    private static func mergedSeasons(_ seasons: [Season], currentSeason: Season?) -> [Season] {
+        var merged: [Season] = []
+        for season in seasons where !merged.contains(where: { Self.seasonsEquivalent($0, season) }) {
+            merged.append(season)
+        }
+        if let currentSeason {
+            merged.removeAll { Self.seasonsEquivalent($0, currentSeason) }
+            merged.insert(currentSeason, at: 0)
+        }
+        return merged.sorted { lhs, rhs in
+            lhs.startDate > rhs.startDate
+        }
+    }
+
+    private static func fallbackSeasons(
+        club: Club,
+        matches: [MatchLite],
+        matchdays: [Matchday],
+        trainings: [Training]
+    ) -> [Season] {
+        var seasonsByLabel: [String: Season] = [:]
+
+        func registerSeason(_ season: Season) {
+            if let existing = seasonsByLabel[season.label],
+               !existing.id.hasPrefix("synthetic:") {
+                return
+            }
+            seasonsByLabel[season.label] = season
+        }
+
+        func registerDate(_ date: Date) {
+            let window = SeasonSupport.displayWindow(for: date, config: club.seasonConfig)
+            guard seasonsByLabel[window.label] == nil else { return }
+            registerSeason(Season(
+                id: "synthetic:\(window.label)",
+                clubId: club.id,
+                key: window.label,
+                label: window.label,
+                startDate: DateFormatters.isoDateOnlyString(from: window.startDate),
+                endDate: DateFormatters.isoDateOnlyString(from: window.endDate),
+                isCurrent: nil
+            ))
+        }
+
+        if let currentSeason = club.currentSeason {
+            registerSeason(currentSeason)
+        }
+        matches.compactMap(\.season).forEach(registerSeason)
+        matchdays.compactMap(\.season).forEach(registerSeason)
+        trainings.compactMap(\.season).forEach(registerSeason)
+
+        registerDate(Date())
+        matches.compactMap { DateFormatters.parseISODate($0.date ?? $0.createdAt) }.forEach(registerDate)
+        matchdays.compactMap { DateFormatters.parseISODate($0.date) }.forEach(registerDate)
+        trainings.compactMap { DateFormatters.parseISODate($0.date) }.forEach(registerDate)
+
+        return mergedSeasons(Array(seasonsByLabel.values), currentSeason: club.currentSeason)
+    }
+
+    private static func filterMatches(
+        _ matches: [MatchLite],
+        for season: Season?,
+        config: ClubSeasonConfig?
+    ) -> [MatchLite] {
+        guard let season else { return matches }
+        return matches.filter { match in
+            if let embeddedSeason = match.season {
+                return seasonsEquivalent(embeddedSeason, season)
+            }
+            guard let date = DateFormatters.parseISODate(match.date ?? match.createdAt) else { return false }
+            return isDate(date, inside: season, config: config)
+        }
+    }
+
+    private static func filterMatchdays(
+        _ matchdays: [Matchday],
+        for season: Season?,
+        config: ClubSeasonConfig?
+    ) -> [Matchday] {
+        guard let season else { return matchdays }
+        return matchdays.filter { matchday in
+            if let embeddedSeason = matchday.season {
+                return seasonsEquivalent(embeddedSeason, season)
+            }
+            guard let date = DateFormatters.parseISODate(matchday.date) else { return false }
+            return isDate(date, inside: season, config: config)
+        }
+    }
+
+    private static func filterTrainings(
+        _ trainings: [Training],
+        for season: Season?,
+        config: ClubSeasonConfig?
+    ) -> [Training] {
+        guard let season else { return trainings }
+        return trainings.filter { training in
+            if let embeddedSeason = training.season {
+                return seasonsEquivalent(embeddedSeason, season)
+            }
+            guard let date = DateFormatters.parseISODate(training.date) else { return false }
+            return isDate(date, inside: season, config: config)
+        }
+    }
+
+    private static func filterAttendance(
+        _ attendance: [AttendanceRow],
+        trainings: [Training],
+        matchdays: [Matchday]
+    ) -> [AttendanceRow] {
+        let trainingIDs = Set(trainings.map(\.id))
+        let matchdayIDs = Set(matchdays.map(\.id))
+
+        return attendance.filter { row in
+            switch row.sessionType.uppercased() {
+            case "TRAINING":
+                return trainingIDs.contains(row.sessionId)
+            case "PLATEAU", "MATCHDAY", "MATCH":
+                return matchdayIDs.contains(row.sessionId)
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func seasonsEquivalent(_ lhs: Season, _ rhs: Season) -> Bool {
+        lhs.id == rhs.id
+            || lhs.label == rhs.label
+            || (lhs.startDate == rhs.startDate && lhs.endDate == rhs.endDate)
+    }
+
+    private static func isDate(_ date: Date, inside season: Season, config: ClubSeasonConfig?) -> Bool {
+        if let startDate = DateFormatters.parseISODate(season.startDate),
+           let endDate = DateFormatters.parseISODate(season.endDate) {
+            return date >= startDate && date <= endDate
+        }
+        return SeasonSupport.displayWindow(for: date, config: config).label == season.label
     }
 
     private static let plateauPalette: [Color] = [
@@ -446,7 +705,7 @@ struct PlayersHomeView: View {
     @State private var selectedTab: TeamTab = .players
     private var dataCacheKey: String { "players-home-\(authStore.me?.id ?? "anonymous")" }
 
-    private var filteredPlayers: [Player] {
+    private var searchedPlayers: [Player] {
         guard !query.isEmpty else { return viewModel.players }
         return viewModel.players.filter { player in
             let haystack = [
@@ -462,6 +721,14 @@ struct PlayersHomeView: View {
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             return haystack.contains(query.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current))
         }
+    }
+
+    private var activePlayers: [Player] {
+        searchedPlayers.filter(\.isActive)
+    }
+
+    private var inactivePlayers: [Player] {
+        searchedPlayers.filter { !$0.isActive }
     }
 
     private func playerDisplayName(_ player: Player) -> String {
@@ -492,6 +759,7 @@ struct PlayersHomeView: View {
             }
             .navigationTitle("Mon équipe")
             .navigationBarTitleDisplayMode(.large)
+            .appChrome()
             .overlay(alignment: .bottomTrailing) {
                 if selectedTab == .players {
                     Button {
@@ -544,6 +812,12 @@ struct PlayersHomeView: View {
             .onChange(of: selectedTab) { _, newValue in
                 guard newValue == .stats else { return }
                 Task {
+                    await statsViewModel.load(players: viewModel.players, refreshSeasonCatalog: true)
+                }
+            }
+            .onChange(of: statsViewModel.selectedSeasonID) { _, _ in
+                guard selectedTab == .stats else { return }
+                Task {
                     await statsViewModel.load(players: viewModel.players)
                 }
             }
@@ -551,7 +825,7 @@ struct PlayersHomeView: View {
                 Task {
                     await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
                     if selectedTab == .stats {
-                        await statsViewModel.load(players: viewModel.players)
+                        await statsViewModel.load(players: viewModel.players, refreshSeasonCatalog: true)
                     }
                 }
             }
@@ -644,32 +918,59 @@ struct PlayersHomeView: View {
     }
 
     private var playersSection: some View {
-        Section("Effectif") {
-            if filteredPlayers.isEmpty {
-                Text(query.isEmpty ? "Aucun joueur" : "Aucun joueur pour cette recherche")
-                    .foregroundStyle(.secondary)
-            }
-
-            ForEach(filteredPlayers) { player in
-                NavigationLink {
-                    PlayerDetailView(playerID: player.id)
-                } label: {
-                    Text(playerDisplayName(player))
-                        .font(.headline)
+        Group {
+            if activePlayers.isEmpty && inactivePlayers.isEmpty {
+                Section("Effectif") {
+                    Text(query.isEmpty ? "Aucun joueur" : "Aucun joueur pour cette recherche")
+                        .foregroundStyle(.secondary)
                 }
-            }
+            } else {
+                Section("Effectif") {
+                    if activePlayers.isEmpty {
+                        Text(query.isEmpty ? "Aucun joueur dans l'effectif" : "Aucun joueur actif pour cette recherche")
+                            .foregroundStyle(.secondary)
+                    }
 
-            if query.isEmpty && viewModel.canLoadMorePlayers {
-                Button {
-                    Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
-                } label: {
-                    HStack {
-                        Spacer()
-                        Text(viewModel.isLoadingMore ? "Chargement..." : "Charger plus")
-                        Spacer()
+                    ForEach(activePlayers) { player in
+                        NavigationLink {
+                            PlayerDetailView(playerID: player.id)
+                        } label: {
+                            Text(playerDisplayName(player))
+                                .font(.headline)
+                        }
+                    }
+
+                    if query.isEmpty && viewModel.canLoadMorePlayers {
+                        Button {
+                            Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text(viewModel.isLoadingMore ? "Chargement..." : "Charger plus")
+                                Spacer()
+                            }
+                        }
+                        .disabled(viewModel.isLoadingMore)
                     }
                 }
-                .disabled(viewModel.isLoadingMore)
+
+                if !inactivePlayers.isEmpty {
+                    Section("Hors effectif") {
+                        ForEach(inactivePlayers) { player in
+                            NavigationLink {
+                                PlayerDetailView(playerID: player.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(playerDisplayName(player))
+                                        .font(.headline)
+                                    Text(player.teamName ?? player.teamId ?? "Équipe non renseignée")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -683,11 +984,9 @@ struct PlayersHomeView: View {
     }
 
     private var statsSection: some View {
-        Section("Stats") {
-            TeamStatsSummaryView(viewModel: statsViewModel)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-        }
+        TeamStatsSummaryView(viewModel: statsViewModel)
+            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            .listRowBackground(Color.clear)
     }
 }
 
@@ -1180,75 +1479,123 @@ private struct TeamStatsSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(viewModel.playedMatchesCount) match(s) joué(s) analysé(s)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                TeamStatCard(title: "Buts marqués", value: "\(viewModel.totalFor)", systemImage: "soccerball")
-                TeamStatCard(title: "Buts encaissés", value: "\(viewModel.totalAgainst)", systemImage: "shield.lefthalf.filled")
-            }
-
-            HStack(spacing: 12) {
-                TeamStatCard(title: "Victoires", value: "\(viewModel.wins)", systemImage: "checkmark.seal.fill")
-                TeamStatCard(title: "Nuls", value: "\(viewModel.draws)", systemImage: "equal.circle.fill")
-                TeamStatCard(title: "Défaites", value: "\(viewModel.losses)", systemImage: "xmark.seal.fill")
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Vue", selection: $selectedChartMode) {
-                    ForEach(TeamStatsChartMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                TeamStatsLineChartCard(
-                    title: "Buts moyens marqués",
-                    series: selectedChartMode == .match ? viewModel.avgForPerMatch : viewModel.avgForPerPlateau,
-                    bands: selectedChartMode == .plateau ? viewModel.plateauBands : []
-                )
-
-                TeamStatsLineChartCard(
-                    title: "Buts moyens encaissés",
-                    series: selectedChartMode == .match ? viewModel.avgAgainstPerMatch : viewModel.avgAgainstPerPlateau,
-                    bands: selectedChartMode == .plateau ? viewModel.plateauBands : []
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Classement", selection: $selectedRankTab) {
-                    ForEach(TeamStatsRankTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Text(sectionTitle)
-                    .font(.headline)
-
-                if currentRows.isEmpty {
-                    Text(emptyStateTitle)
+            if !viewModel.seasons.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Saison")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(currentRows.enumerated()), id: \.element.id) { index, row in
-                        HStack {
-                            Text("\(index + 1)")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 24, alignment: .leading)
-                            Text(row.name)
+                    Menu {
+                        ForEach(viewModel.seasons) { season in
+                            Button {
+                                viewModel.selectedSeasonID = season.id
+                            } label: {
+                                Text(season.label)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(viewModel.seasonLabel.isEmpty ? "Choisir une saison" : viewModel.seasonLabel)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
                             Spacer()
-                            Text("\(row.value)")
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                         }
-                        .font(.subheadline)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            if viewModel.playedMatchesCount == 0 {
+                VStack(spacing: 12) {
+                    Image(systemName: "soccerball")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Aucun match n'a été joué pour le moment")
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 28)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                TeamStatCard(
+                    title: "Matchs joués",
+                    value: "\(viewModel.playedMatchesCount)",
+                    systemImage: "flag.checkered"
+                )
+
+                HStack(spacing: 12) {
+                    TeamStatCard(title: "Buts marqués", value: "\(viewModel.totalFor)", systemImage: "soccerball")
+                    TeamStatCard(title: "Buts encaissés", value: "\(viewModel.totalAgainst)", systemImage: "shield.lefthalf.filled")
+                }
+
+                HStack(spacing: 12) {
+                    TeamStatCard(title: "Victoires", value: "\(viewModel.wins)", systemImage: "checkmark.seal.fill")
+                    TeamStatCard(title: "Nuls", value: "\(viewModel.draws)", systemImage: "equal.circle.fill")
+                    TeamStatCard(title: "Défaites", value: "\(viewModel.losses)", systemImage: "xmark.seal.fill")
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Vue", selection: $selectedChartMode) {
+                        ForEach(TeamStatsChartMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    TeamStatsLineChartCard(
+                        title: "Buts moyens marqués",
+                        series: selectedChartMode == .match ? viewModel.avgForPerMatch : viewModel.avgForPerPlateau,
+                        bands: selectedChartMode == .plateau ? viewModel.plateauBands : []
+                    )
+
+                    TeamStatsLineChartCard(
+                        title: "Buts moyens encaissés",
+                        series: selectedChartMode == .match ? viewModel.avgAgainstPerMatch : viewModel.avgAgainstPerPlateau,
+                        bands: selectedChartMode == .plateau ? viewModel.plateauBands : []
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Classement", selection: $selectedRankTab) {
+                        ForEach(TeamStatsRankTab.allCases) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(sectionTitle)
+                        .font(.headline)
+
+                    if currentRows.isEmpty {
+                        Text(emptyStateTitle)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(currentRows.enumerated()), id: \.element.id) { index, row in
+                            HStack {
+                                Text("\(index + 1)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24, alignment: .leading)
+                                Text(row.name)
+                                Spacer()
+                                Text("\(row.value)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
         }
     }
 

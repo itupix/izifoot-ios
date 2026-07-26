@@ -29,6 +29,18 @@ fileprivate enum ParentInvitationStatusValue: String {
     }
 }
 
+fileprivate enum PlayerRosterStatusAction: Identifiable {
+    case remove
+    case reintegrate
+
+    var id: String {
+        switch self {
+        case .remove: return "remove"
+        case .reintegrate: return "reintegrate"
+        }
+    }
+}
+
 @MainActor
 final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var player: Player?
@@ -36,6 +48,7 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var isInviting = false
     @Published private(set) var isSavingProfile = false
     @Published private(set) var isSavingInvitePrerequisites = false
+    @Published private(set) var isUpdatingRosterStatus = false
     @Published private(set) var deletingParentID: String?
     @Published fileprivate var invitationStatus: PlayerInvitationStatusValue = .none
     @Published private(set) var inviteURL: URL?
@@ -172,6 +185,21 @@ final class PlayerDetailViewModel: ObservableObject {
             return false
         }
     }
+
+    func updateRosterStatus(playerID: String, isActive: Bool) async -> Bool {
+        isUpdatingRosterStatus = true
+        defer { isUpdatingRosterStatus = false }
+
+        do {
+            player = try await api.updatePlayerRosterStatus(id: playerID, isActive: isActive)
+            NotificationCenter.default.post(name: .playerDidUpdate, object: nil, userInfo: ["playerId": playerID])
+            errorMessage = nil
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
+        }
+    }
 }
 
 struct PlayerDetailView: View {
@@ -196,111 +224,12 @@ struct PlayerDetailView: View {
     @State private var editSecondaryPosition = ""
     @State private var editIsChild = false
     @State private var editTeamID = ""
+    @State private var rosterStatusAction: PlayerRosterStatusAction?
 
     var body: some View {
         List {
             if let player = viewModel.player {
-                Section("Identité") {
-                    if let firstName = player.firstName {
-                        LabeledContent("Prénom", value: firstName)
-                    }
-                    LabeledContent("Nom", value: displayValue(player.lastName))
-                    LabeledContent("Date de naissance", value: displayDate(player.dateOfBirth))
-                }
-
-                Section("Club et équipe") {
-                    LabeledContent("Club", value: playerClubLabel)
-                    LabeledContent("Équipe", value: playerTeamLabel)
-                }
-
-                Section("Sport") {
-                    LabeledContent("Licence", value: displayValue(player.licence))
-                    if let primaryPosition = player.primaryPosition {
-                        LabeledContent("Poste principal", value: primaryPosition)
-                    }
-                    if let secondaryPosition = player.secondaryPosition {
-                        LabeledContent("Poste secondaire", value: secondaryPosition)
-                    }
-                }
-
-                if !player.isChild {
-                    Section("Contact") {
-                        LabeledContent("Email", value: displayValue(player.email))
-                        LabeledContent("Téléphone", value: displayValue(player.phone))
-                    }
-                }
-
-                if player.isChild {
-                    Section("Parents") {
-                        if player.parentContacts.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Aucun parent lié")
-                                    .foregroundStyle(.secondary)
-                                Button("Ajouter un parent") {
-                                    openParentInviteSheet()
-                                }
-                                .buttonStyle(.borderedProminent)
-                            }
-                        } else {
-                            ForEach(Array(player.parentContacts.enumerated()), id: \.element.id) { index, parent in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text("Parent \(index + 1)")
-                                            .font(.headline)
-                                        Spacer()
-                                        if let parentID = parent.parentId, !parentID.isEmpty {
-                                            Button(role: .destructive) {
-                                                parentToDelete = parent
-                                            } label: {
-                                                Text(viewModel.deletingParentID == parentID ? "Suppression…" : "Supprimer")
-                                            }
-                                            .disabled(viewModel.deletingParentID == parentID)
-                                        }
-                                    }
-                                    LabeledContent("Prénom", value: displayValue(parent.firstName))
-                                    LabeledContent("Nom", value: displayValue(parent.lastName))
-                                    LabeledContent("Email", value: displayValue(parent.email))
-                                    LabeledContent("Téléphone", value: displayValue(parent.phone))
-                                    LabeledContent("Statut", value: parentInvitationStatusLabel(parent.status))
-                                    if parentInvitationState(parent) != .accepted {
-                                        Button(viewModel.isInviting ? "Envoi…" : parentInviteButtonTitle(parent)) {
-                                            inviteExistingParent(parent)
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            Button("Ajouter un autre parent") {
-                                openParentInviteSheet()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-
-                if !player.isChild {
-                    Section("Invitation compte") {
-                        LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
-                        let blockingFields = adultInviteBlockingFields(player)
-                        if !blockingFields.isEmpty {
-                            Text("Complétez \(formattedFieldList(blockingFields)) avant d’envoyer l’invitation.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        if viewModel.invitationStatus != .accepted {
-                            Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
-                                if !blockingFields.isEmpty {
-                                    isAdultInvitePrerequisitesSheetPresented = true
-                                } else {
-                                    Task { await viewModel.invitePlayer(id: playerID) }
-                                }
-                            }
-                            .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
-                        }
-                    }
-                }
+                playerSections(for: player)
             }
         }
         .overlay {
@@ -315,7 +244,7 @@ struct PlayerDetailView: View {
                     Button("Modifier") {
                         prepareEditSheet(for: player)
                     }
-                    .disabled(viewModel.isSavingProfile || viewModel.isSavingInvitePrerequisites || viewModel.isInviting)
+                    .disabled(viewModel.isSavingProfile || viewModel.isSavingInvitePrerequisites || viewModel.isInviting || viewModel.isUpdatingRosterStatus)
                 }
             }
         }
@@ -384,67 +313,35 @@ struct PlayerDetailView: View {
             }
         }
         .sheet(isPresented: $isParentInviteSheetPresented) {
-            NavigationStack {
-                Form {
-                    Section("Inviter un parent") {
-                        TextField("Adresse e-mail du parent", text: $parentInviteEmail)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.emailAddress)
-                        TextField("Téléphone du parent", text: $parentInvitePhone)
-                            .keyboardType(.phonePad)
-                        Text("Au moins un des deux champs est requis.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .navigationTitle("Inviter un parent")
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Annuler") { isParentInviteSheetPresented = false }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Continuer") {
-                            let email = parentInviteEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let phone = parentInvitePhone.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !email.isEmpty || !phone.isEmpty else {
-                                viewModel.errorMessage = "Merci de renseigner au moins un e-mail ou un téléphone parent."
-                                return
-                            }
-                            isParentInviteSheetPresented = false
-                            Task {
-                                await viewModel.invitePlayer(
-                                    id: playerID,
-                                    email: email.isEmpty ? nil : email,
-                                    phone: phone.isEmpty ? nil : phone
-                                )
-                            }
-                        }
-                    }
-                }
+            ParentInviteSheet(
+                email: $parentInviteEmail,
+                phone: $parentInvitePhone,
+                isSubmitting: viewModel.isInviting
+            ) { email, phone in
+                await viewModel.invitePlayer(
+                    id: playerID,
+                    email: email,
+                    phone: phone
+                )
             }
         }
         .confirmationDialog(
-            "Supprimer ce parent de la fiche joueur ?",
-            isPresented: Binding(
-                get: { parentToDelete != nil },
-                set: { if !$0 { parentToDelete = nil } }
-            ),
+            rosterStatusDialogTitle,
+            isPresented: isRosterStatusDialogPresented,
             titleVisibility: .visible
         ) {
-            Button("Supprimer le parent", role: .destructive) {
-                guard let parent = parentToDelete, let parentID = parent.parentId, !parentID.isEmpty else {
-                    parentToDelete = nil
-                    return
-                }
-                Task {
-                    _ = await viewModel.deleteParent(playerID: playerID, parentID: parentID)
-                    parentToDelete = nil
-                }
-            }
-            Button("Annuler", role: .cancel) {
-                parentToDelete = nil
-            }
+            Button(rosterStatusDialogConfirmTitle, role: rosterStatusDialogRole, action: confirmRosterStatusChange)
+            Button("Annuler", role: .cancel, action: dismissRosterStatusDialog)
+        } message: {
+            Text(rosterStatusDialogMessage)
+        }
+        .confirmationDialog(
+            "Supprimer ce parent de la fiche joueur ?",
+            isPresented: isParentDeleteDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Supprimer le parent", role: .destructive, action: confirmParentDeletion)
+            Button("Annuler", role: .cancel, action: dismissParentDeleteDialog)
         }
         .alert("Erreur", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
@@ -453,6 +350,193 @@ struct PlayerDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func playerSections(for player: Player) -> some View {
+        identitySection(for: player)
+        clubTeamSection
+        rosterSection(for: player)
+        sportSection(for: player)
+
+        if !player.isChild {
+            contactSection(for: player)
+        }
+
+        if player.isChild {
+            parentsSection(for: player)
+        }
+
+        if !player.isChild {
+            invitationSection(for: player)
+        }
+    }
+
+    private func identitySection(for player: Player) -> some View {
+        Section("Identité") {
+            if let firstName = player.firstName {
+                LabeledContent("Prénom", value: firstName)
+            }
+            LabeledContent("Nom", value: displayValue(player.lastName))
+            LabeledContent("Date de naissance", value: displayDate(player.dateOfBirth))
+        }
+    }
+
+    private var clubTeamSection: some View {
+        Section("Club et équipe") {
+            LabeledContent("Club", value: playerClubLabel)
+            LabeledContent("Équipe", value: playerTeamLabel)
+        }
+    }
+
+    private func rosterSection(for player: Player) -> some View {
+        Section("Effectif") {
+            LabeledContent("Statut", value: player.isActive ? "Dans l'effectif" : "Hors effectif")
+
+            if canManageRoster {
+                if player.isActive {
+                    Button(role: .destructive, action: showRosterRemovalDialog) {
+                        Text(viewModel.isUpdatingRosterStatus ? "Retrait…" : "Retirer de l'effectif")
+                    }
+                    .disabled(viewModel.isUpdatingRosterStatus || viewModel.isSavingProfile)
+                } else {
+                    Text("Vous pouvez modifier l'équipe du joueur avant sa réintégration.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Button(action: showRosterReintegrationDialog) {
+                        Text(viewModel.isUpdatingRosterStatus ? "Réintégration…" : "Réintégrer dans l'effectif")
+                    }
+                    .disabled(viewModel.isUpdatingRosterStatus || viewModel.isSavingProfile)
+                }
+            }
+        }
+    }
+
+    private func sportSection(for player: Player) -> some View {
+        Section("Sport") {
+            LabeledContent("Licence", value: displayValue(player.licence))
+            if let primaryPosition = player.primaryPosition {
+                LabeledContent("Poste principal", value: primaryPosition)
+            }
+            if let secondaryPosition = player.secondaryPosition {
+                LabeledContent("Poste secondaire", value: secondaryPosition)
+            }
+        }
+    }
+
+    private func contactSection(for player: Player) -> some View {
+        Section("Contact") {
+            LabeledContent("Email", value: displayValue(player.email))
+            LabeledContent("Téléphone", value: displayValue(player.phone))
+        }
+    }
+
+    @ViewBuilder
+    private func parentsSection(for player: Player) -> some View {
+        Section("Parents") {
+            if player.parentContacts.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Aucun parent lié")
+                        .foregroundStyle(.secondary)
+                    Button("Ajouter un parent", action: openParentInviteSheet)
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                ForEach(Array(player.parentContacts.enumerated()), id: \.element.id) { index, parent in
+                    PlayerParentContactCard(
+                        title: "Parent \(index + 1)",
+                        parent: parent,
+                        isDeleting: parent.parentId == viewModel.deletingParentID,
+                        isInviting: viewModel.isInviting,
+                        isSaveBlocked: viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile,
+                        statusLabel: parentInvitationStatusLabel(parent.status),
+                        inviteButtonTitle: parentInviteButtonTitle(parent),
+                        canInvite: parentInvitationState(parent) != .accepted,
+                        onDelete: { parentToDelete = parent },
+                        onInvite: { inviteExistingParent(parent) }
+                    )
+                }
+                Button("Ajouter un autre parent", action: openParentInviteSheet)
+                    .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private func invitationSection(for player: Player) -> some View {
+        let blockingFields = adultInviteBlockingFields(player)
+
+        return Section("Invitation compte") {
+            LabeledContent("Statut", value: invitationStatusLabel(viewModel.invitationStatus))
+            if !blockingFields.isEmpty {
+                Text("Complétez \(formattedFieldList(blockingFields)) avant d’envoyer l’invitation.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if viewModel.invitationStatus != .accepted {
+                Button(viewModel.isInviting ? "Envoi…" : inviteButtonTitle(for: player)) {
+                    if !blockingFields.isEmpty {
+                        isAdultInvitePrerequisitesSheetPresented = true
+                    } else {
+                        Task { await viewModel.invitePlayer(id: playerID) }
+                    }
+                }
+                .disabled(viewModel.isInviting || viewModel.isSavingInvitePrerequisites || viewModel.isSavingProfile)
+            }
+        }
+    }
+
+    private var isRosterStatusDialogPresented: Binding<Bool> {
+        Binding(
+            get: { rosterStatusAction != nil },
+            set: { if !$0 { dismissRosterStatusDialog() } }
+        )
+    }
+
+    private var isParentDeleteDialogPresented: Binding<Bool> {
+        Binding(
+            get: { parentToDelete != nil },
+            set: { if !$0 { dismissParentDeleteDialog() } }
+        )
+    }
+
+    private func showRosterRemovalDialog() {
+        rosterStatusAction = .remove
+    }
+
+    private func showRosterReintegrationDialog() {
+        rosterStatusAction = .reintegrate
+    }
+
+    private func dismissRosterStatusDialog() {
+        rosterStatusAction = nil
+    }
+
+    private func dismissParentDeleteDialog() {
+        parentToDelete = nil
+    }
+
+    private func confirmRosterStatusChange() {
+        guard let rosterStatusAction else { return }
+        let nextIsActive = rosterStatusAction == .reintegrate
+        Task {
+            let updated = await viewModel.updateRosterStatus(playerID: playerID, isActive: nextIsActive)
+            if updated {
+                dismissRosterStatusDialog()
+            }
+        }
+    }
+
+    private func confirmParentDeletion() {
+        guard let parent = parentToDelete, let parentID = parent.parentId, !parentID.isEmpty else {
+            dismissParentDeleteDialog()
+            return
+        }
+
+        Task {
+            _ = await viewModel.deleteParent(playerID: playerID, parentID: parentID)
+            dismissParentDeleteDialog()
         }
     }
 
@@ -551,6 +635,48 @@ struct PlayerDetailView: View {
         }
         let legacyName = player.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return legacyName.isEmpty ? "Joueur" : legacyName
+    }
+
+    private var canManageRoster: Bool {
+        guard let role = authStore.me?.role else { return false }
+        return role == .direction || role == .coach
+    }
+
+    private var rosterStatusDialogTitle: String {
+        switch rosterStatusAction {
+        case .remove:
+            return "Retirer ce joueur de l'effectif ?"
+        case .reintegrate:
+            return "Réintégrer ce joueur dans l'effectif ?"
+        case nil:
+            return ""
+        }
+    }
+
+    private var rosterStatusDialogConfirmTitle: String {
+        switch rosterStatusAction {
+        case .remove:
+            return "Retirer"
+        case .reintegrate:
+            return "Réintégrer"
+        case nil:
+            return "Valider"
+        }
+    }
+
+    private var rosterStatusDialogRole: ButtonRole? {
+        rosterStatusAction == .remove ? .destructive : nil
+    }
+
+    private var rosterStatusDialogMessage: String {
+        switch rosterStatusAction {
+        case .remove:
+            return "Le joueur ne sera plus proposé dans les entraînements et les matchs."
+        case .reintegrate:
+            return "Le joueur redeviendra disponible dans les entraînements et les matchs."
+        case nil:
+            return ""
+        }
     }
 
     private func invitationStatusLabel(_ status: PlayerInvitationStatusValue) -> String {
@@ -938,6 +1064,113 @@ private struct AdultInvitePrerequisitesPayload {
     let lastName: String
     let email: String
     let phone: String
+}
+
+private struct PlayerParentContactCard: View {
+    let title: String
+    let parent: Player.ParentContact
+    let isDeleting: Bool
+    let isInviting: Bool
+    let isSaveBlocked: Bool
+    let statusLabel: String
+    let inviteButtonTitle: String
+    let canInvite: Bool
+    let onDelete: () -> Void
+    let onInvite: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                if let parentID = parent.parentId, !parentID.isEmpty {
+                    Button(role: .destructive, action: onDelete) {
+                        Text(isDeleting ? "Suppression…" : "Supprimer")
+                    }
+                    .disabled(isDeleting)
+                }
+            }
+            LabeledContent("Prénom", value: displayValue(parent.firstName))
+            LabeledContent("Nom", value: displayValue(parent.lastName))
+            LabeledContent("Email", value: displayValue(parent.email))
+            LabeledContent("Téléphone", value: displayValue(parent.phone))
+            LabeledContent("Statut", value: statusLabel)
+            if canInvite {
+                Button(isInviting ? "Envoi…" : inviteButtonTitle, action: onInvite)
+                    .buttonStyle(.bordered)
+                    .disabled(isInviting || isSaveBlocked)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "—" : trimmed
+    }
+}
+
+private struct ParentInviteSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var email: String
+    @Binding var phone: String
+
+    let isSubmitting: Bool
+    let onSubmit: (String?, String?) async -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Inviter un parent") {
+                    TextField("Adresse e-mail du parent", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .keyboardType(.emailAddress)
+                    TextField("Téléphone du parent", text: $phone)
+                        .keyboardType(.phonePad)
+                }
+
+                Section {
+                    Text("Au moins un des deux champs est requis.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Inviter un parent")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Annuler") { dismiss() }
+                        .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Continuer") {
+                        Task {
+                            await onSubmit(
+                                trimmedEmail.isEmpty ? nil : trimmedEmail,
+                                trimmedPhone.isEmpty ? nil : trimmedPhone
+                            )
+                            dismiss()
+                        }
+                    }
+                    .disabled(!canSubmit || isSubmitting)
+                }
+            }
+        }
+    }
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedPhone: String {
+        phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSubmit: Bool {
+        !trimmedEmail.isEmpty || !trimmedPhone.isEmpty
+    }
 }
 
 private struct CompleteAdultInviteInfoSheet: View {

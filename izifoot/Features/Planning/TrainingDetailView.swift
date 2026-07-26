@@ -69,13 +69,30 @@ final class TrainingDetailViewModel: ObservableObject {
             async let rolesTask = api.trainingRoles(trainingID: training.id)
             async let intentsTask = api.trainingIntent(trainingID: training.id)
 
-            players = try await playersTask.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            attendance = try await attendanceTask
+            let loadedPlayers = try await playersTask
+            let loadedAttendance = try await attendanceTask
+            let loadedRoles = try await rolesTask
+
+            var allPlayers = loadedPlayers
+            let knownPlayerIDs = Set(allPlayers.map(\.id))
+            let referencedPlayerIDs = Set(loadedAttendance.map(\.playerId))
+                .union(loadedRoles.items.map(\.playerId))
+
+            for playerID in referencedPlayerIDs where !knownPlayerIDs.contains(playerID) {
+                if let player = try? await api.player(id: playerID) {
+                    allPlayers.append(player)
+                }
+            }
+
+            players = Dictionary(uniqueKeysWithValues: allPlayers.map { ($0.id, $0) })
+                .values
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            attendance = loadedAttendance
             trainingDrills = try await trainingDrillsTask.sorted { lhs, rhs in
                 lhs.order < rhs.order || (lhs.order == rhs.order && lhs.id < rhs.id)
             }
             drillCatalog = try await drillsTask.items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            roleEntries = try await rolesTask.items.map {
+            roleEntries = loadedRoles.items.map {
                 TrainingRoleEntry(id: $0.id, role: $0.role, playerID: $0.playerId)
             }
             let intents = try? await intentsTask
@@ -588,7 +605,7 @@ struct TrainingDetailView: View {
         return (role == .direction || role == .coach) && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
     }
 
-    private var filteredPlayers: [Player] {
+    private var scopedPlayers: [Player] {
         let basePlayers: [Player]
         if let selectedTeamID = teamScopeStore.selectedTeamID {
             basePlayers = viewModel.players.filter { $0.teamId == nil || $0.teamId == selectedTeamID }
@@ -604,6 +621,10 @@ struct TrainingDetailView: View {
         }
     }
 
+    private var filteredPlayers: [Player] {
+        scopedPlayers.filter(\.isActive)
+    }
+
     private var presentPlayerIDs: Set<String> {
         Set(viewModel.attendance.filter(\.present).map(\.playerId))
     }
@@ -617,7 +638,7 @@ struct TrainingDetailView: View {
     }
 
     private var playerByID: [String: Player] {
-        Dictionary(uniqueKeysWithValues: filteredPlayers.map { ($0.id, $0) })
+        Dictionary(uniqueKeysWithValues: scopedPlayers.map { ($0.id, $0) })
     }
 
     private var drillByID: [String: Drill] {

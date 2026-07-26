@@ -6,6 +6,7 @@ import UIKit
 extension Notification.Name {
     static let teamMessagesDidRefresh = Notification.Name("teamMessagesDidRefresh")
     static let messagesUnreadCountDidChange = Notification.Name("messagesUnreadCountDidChange")
+    static let messagesRefreshRequested = Notification.Name("messagesRefreshRequested")
 }
 
 private extension MessageConversation {
@@ -303,6 +304,7 @@ struct MessagesView: View {
             .listStyle(.plain)
             .navigationTitle("Messages")
             .navigationBarTitleDisplayMode(.large)
+            .appChrome()
             .task {
                 unreadStore.setCurrentUserID(authStore.me?.id)
                 await viewModel.load(cacheKey: dataCacheKey)
@@ -315,6 +317,12 @@ struct MessagesView: View {
             .refreshable {
                 await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
                 publishUnreadCount()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .messagesRefreshRequested)) { _ in
+                Task {
+                    await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                    publishUnreadCount()
+                }
             }
             .onAppear {
                 publishUnreadCount()

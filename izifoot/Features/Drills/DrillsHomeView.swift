@@ -208,6 +208,7 @@ struct DrillsHomeView: View {
             }
             .navigationTitle("Exercices")
             .navigationBarTitleDisplayMode(.large)
+            .appChrome()
             .overlay(alignment: .bottomTrailing) {
                 if teamScopedWritable {
                     Button {

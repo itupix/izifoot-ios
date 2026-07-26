@@ -18,6 +18,7 @@ enum APIRoutes {
 
     enum Clubs {
         static let me = "/clubs/me"
+        static let seasons = "/clubs/me/seasons"
         static let coaches = "/clubs/me/coaches"
     }
 
@@ -41,6 +42,7 @@ enum APIRoutes {
         static func byID(_ id: String) -> String { "/players/\(id.urlEncoded)" }
         static func parentByID(_ id: String, parentID: String) -> String { "/players/\(id.urlEncoded)/parents/\(parentID.urlEncoded)" }
         static func invite(_ id: String) -> String { "/players/\(id.urlEncoded)/invite" }
+        static func rosterStatus(_ id: String) -> String { "/players/\(id.urlEncoded)/roster-status" }
         static func invitationStatus(_ id: String) -> String { "/players/\(id.urlEncoded)/invitation-status" }
     }
 
