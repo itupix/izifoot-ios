@@ -57,7 +57,7 @@ Restrictions: dependent on API availability.
 
 ## 6. User Flows
 - Main flow: open planning -> view list -> open session detail.
-- Variants: create new training/matchday from sheets.
+- Variants: create new training/matchday from sheets; `MATCH` creation asks for location and opponent in the same sheet while using the selected planning day as the date source.
 - Back navigation: detail back to planning list.
 - Interruptions: fetch errors.
 - Errors: creation failure alerts.
@@ -68,7 +68,7 @@ Restrictions: dependent on API availability.
 - Actions: refresh list, create session items.
 - States: loading, loaded, empty, error.
 - Conditions: role controls creation affordances.
-- Validations: sheet inputs validated before API calls.
+- Validations: the create sheet no longer exposes a date field; it validates location for every competition and opponent for `MATCH` before the API call.
 - Blocking rules: duplicate concurrent create operations prevented.
 - Automations: none.
 

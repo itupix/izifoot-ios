@@ -107,7 +107,8 @@ final class PlanningHomeViewModel: ObservableObject {
         cacheKey: String,
         startTime: String? = nil,
         meetingTime: String? = nil,
-        competitionType: String = "PLATEAU"
+        competitionType: String = "PLATEAU",
+        opponentName: String? = nil
     ) async {
         do {
             let newMatchday = try await api.createMatchday(
@@ -117,7 +118,8 @@ final class PlanningHomeViewModel: ObservableObject {
                 teamName: teamName,
                 startTime: startTime,
                 meetingTime: meetingTime,
-                competitionType: competitionType
+                competitionType: competitionType,
+                opponentName: opponentName
             )
             matchdays.insert(newMatchday, at: 0)
             await PersistentDataCache.shared.write(
@@ -163,6 +165,7 @@ struct PlanningHomeView: View {
     @State private var isTrainingCreationConfirmationPresented = false
     @State private var isCompetitionSheetPresented = false
     @State private var competitionLocation = ""
+    @State private var competitionOpponent = ""
     @State private var competitionType: CompetitionType = .plateau
     @State private var updatingTrainingIntentIDs: Set<String> = []
     private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
@@ -241,6 +244,7 @@ struct PlanningHomeView: View {
                         actionTitle: teamScopedWritable ? "Ajouter" : nil,
                         onAction: teamScopedWritable ? {
                             competitionLocation = ""
+                            competitionOpponent = ""
                             competitionType = .plateau
                             isCompetitionSheetPresented = true
                         } : nil
@@ -303,6 +307,7 @@ struct PlanningHomeView: View {
                     selectedDate: selectedDate,
                     competitionType: $competitionType,
                     location: $competitionLocation,
+                    opponentName: $competitionOpponent,
                     suggestedLocations: matchdayLocations
                 ) {
                     await viewModel.createMatchday(
@@ -311,9 +316,13 @@ struct PlanningHomeView: View {
                         teamID: teamScopeStore.selectedTeamID,
                         teamName: selectedTeamName,
                         cacheKey: dataCacheKey,
-                        competitionType: competitionType.rawValue
+                        competitionType: competitionType.rawValue,
+                        opponentName: competitionType == .match
+                            ? competitionOpponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : nil
                     )
                     competitionLocation = ""
+                    competitionOpponent = ""
                     isCompetitionSheetPresented = false
                 }
                 .presentationDetents([.medium, .large])
@@ -852,16 +861,13 @@ private struct CreateCompetitionSheet: View {
     let selectedDate: Date
     @Binding var competitionType: CompetitionType
     @Binding var location: String
+    @Binding var opponentName: String
     let suggestedLocations: [String]
     let onSubmit: () async -> Void
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Date") {
-                    Text(PlanningDateHelpers.title(for: selectedDate))
-                }
-
                 Section("Type de compétition") {
                     Picker("Type", selection: $competitionType) {
                         ForEach(CompetitionType.allCases) { type in
@@ -875,6 +881,12 @@ private struct CreateCompetitionSheet: View {
                     TextField(competitionType == .tournoi ? "Ex. Tournoi de printemps U11" : "Ex. Stade municipal", text: $location)
                 }
 
+                if competitionType == .match {
+                    Section("Adversaire") {
+                        TextField("Ex. FC Montfermeil", text: $opponentName)
+                    }
+                }
+
                 if competitionType != .tournoi, !suggestedLocations.isEmpty {
                     Section("Lieux déjà utilisés") {
                         ForEach(suggestedLocations, id: \.self) { suggestion in
@@ -886,6 +898,12 @@ private struct CreateCompetitionSheet: View {
                 }
             }
             .navigationTitle("Créer une compétition")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: competitionType) { _, nextValue in
+                if nextValue != .match {
+                    opponentName = ""
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") {
@@ -893,12 +911,15 @@ private struct CreateCompetitionSheet: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Continuer") {
+                    Button("Créer") {
                         Task {
                             await onSubmit()
                         }
                     }
-                    .disabled(location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || (competitionType == .match && opponentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    )
                 }
             }
         }
