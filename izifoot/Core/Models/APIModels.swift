@@ -663,8 +663,39 @@ struct Matchday: Codable, Identifiable {
     let meetingTime: String?
     let teamId: String?
     let competitionType: String?
+    let matchVenue: String?
     let tournamentHasGroupStage: Bool?
     let tournamentKnockoutMode: String?
+}
+
+extension Matchday {
+    var normalizedCompetitionType: String {
+        competitionType?.uppercased() ?? "PLATEAU"
+    }
+
+    var isHomeMatch: Bool {
+        normalizedCompetitionType == "MATCH" && matchVenue?.uppercased() == "HOME"
+    }
+
+    var locationDisplayLabel: String {
+        if isHomeMatch {
+            return "À domicile"
+        }
+        let trimmedLocation = lieu?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedLocation.isEmpty ? "À définir" : trimmedLocation
+    }
+
+    var mapQuery: String? {
+        let trimmedAddress = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedAddress.isEmpty {
+            return trimmedAddress
+        }
+        if isHomeMatch {
+            return nil
+        }
+        let trimmedLocation = lieu?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedLocation.isEmpty ? nil : trimmedLocation
+    }
 }
 
 struct Drill: Codable, Identifiable {

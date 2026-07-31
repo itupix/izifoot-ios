@@ -108,6 +108,7 @@ final class PlanningHomeViewModel: ObservableObject {
         startTime: String? = nil,
         meetingTime: String? = nil,
         competitionType: String = "PLATEAU",
+        matchVenue: String? = nil,
         opponentName: String? = nil
     ) async {
         do {
@@ -119,6 +120,7 @@ final class PlanningHomeViewModel: ObservableObject {
                 startTime: startTime,
                 meetingTime: meetingTime,
                 competitionType: competitionType,
+                matchVenue: matchVenue,
                 opponentName: opponentName
             )
             matchdays.insert(newMatchday, at: 0)
@@ -153,6 +155,20 @@ private enum CompetitionType: String, CaseIterable, Identifiable {
     }
 }
 
+private enum MatchVenueChoice: String, CaseIterable, Identifiable {
+    case home = "HOME"
+    case away = "AWAY"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .home: return "À domicile"
+        case .away: return "À l’extérieur"
+        }
+    }
+}
+
 struct PlanningHomeView: View {
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var teamScopeStore: TeamScopeStore
@@ -167,6 +183,7 @@ struct PlanningHomeView: View {
     @State private var competitionLocation = ""
     @State private var competitionOpponent = ""
     @State private var competitionType: CompetitionType = .plateau
+    @State private var competitionMatchVenue: MatchVenueChoice?
     @State private var updatingTrainingIntentIDs: Set<String> = []
     private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
 
@@ -246,6 +263,7 @@ struct PlanningHomeView: View {
                             competitionLocation = ""
                             competitionOpponent = ""
                             competitionType = .plateau
+                            competitionMatchVenue = nil
                             isCompetitionSheetPresented = true
                         } : nil
                     ) {
@@ -260,7 +278,7 @@ struct PlanningHomeView: View {
                                         MatchdayDetailView(matchday: matchday)
                                     } label: {
                                         PlanningEventRow(
-                                            title: "\(competitionTypeLabel(matchday)) — \(matchday.lieu ?? "Lieu non renseigné")",
+                                            title: "\(competitionTypeLabel(matchday)) — \(matchday.locationDisplayLabel)",
                                             subtitle: teamSubtitle(for: matchday.teamId),
                                             systemImage: "trophy",
                                             tint: .orange
@@ -269,7 +287,7 @@ struct PlanningHomeView: View {
                                     .buttonStyle(.plain)
                                 } else {
                                     PlanningEventRow(
-                                        title: "\(competitionTypeLabel(matchday)) — \(matchday.lieu ?? "Lieu non renseigné")",
+                                        title: "\(competitionTypeLabel(matchday)) — \(matchday.locationDisplayLabel)",
                                         subtitle: teamSubtitle(for: matchday.teamId),
                                         systemImage: "trophy",
                                         tint: .orange
@@ -308,21 +326,26 @@ struct PlanningHomeView: View {
                     competitionType: $competitionType,
                     location: $competitionLocation,
                     opponentName: $competitionOpponent,
+                    matchVenue: $competitionMatchVenue,
                     suggestedLocations: matchdayLocations
                 ) {
                     await viewModel.createMatchday(
                         date: selectedDate,
-                        location: competitionLocation.trimmingCharacters(in: .whitespacesAndNewlines),
+                        location: competitionType == .match && competitionMatchVenue == .home
+                            ? ""
+                            : competitionLocation.trimmingCharacters(in: .whitespacesAndNewlines),
                         teamID: teamScopeStore.selectedTeamID,
                         teamName: selectedTeamName,
                         cacheKey: dataCacheKey,
                         competitionType: competitionType.rawValue,
+                        matchVenue: competitionType == .match ? competitionMatchVenue?.rawValue : nil,
                         opponentName: competitionType == .match
                             ? competitionOpponent.trimmingCharacters(in: .whitespacesAndNewlines)
                             : nil
                     )
                     competitionLocation = ""
                     competitionOpponent = ""
+                    competitionMatchVenue = nil
                     isCompetitionSheetPresented = false
                 }
                 .presentationDetents([.medium, .large])
@@ -504,7 +527,7 @@ struct PlanningHomeView: View {
     }
 
     private func competitionTypeLabel(_ matchday: Matchday) -> String {
-        switch matchday.competitionType?.uppercased() {
+        switch matchday.normalizedCompetitionType {
         case "MATCH":
             return "Match"
         case "TOURNOI":
@@ -862,6 +885,7 @@ private struct CreateCompetitionSheet: View {
     @Binding var competitionType: CompetitionType
     @Binding var location: String
     @Binding var opponentName: String
+    @Binding var matchVenue: MatchVenueChoice?
     let suggestedLocations: [String]
     let onSubmit: () async -> Void
 
@@ -877,17 +901,37 @@ private struct CreateCompetitionSheet: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section(locationSectionTitle) {
-                    TextField(competitionType == .tournoi ? "Ex. Tournoi de printemps U11" : "Ex. Stade municipal", text: $location)
-                }
-
                 if competitionType == .match {
                     Section("Adversaire") {
                         TextField("Ex. FC Montfermeil", text: $opponentName)
                     }
+
+                    Section("Réception ou déplacement") {
+                        ForEach(MatchVenueChoice.allCases) { venue in
+                            Button {
+                                matchVenue = venue
+                            } label: {
+                                HStack {
+                                    Text(venue.label)
+                                    Spacer()
+                                    if matchVenue == venue {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
                 }
 
-                if competitionType != .tournoi, !suggestedLocations.isEmpty {
+                if shouldShowLocationField {
+                    Section(locationSectionTitle) {
+                        TextField(competitionType == .tournoi ? "Ex. Tournoi de printemps U11" : "Ex. Stade municipal", text: $location)
+                    }
+                }
+
+                if shouldShowLocationField, competitionType != .tournoi, !suggestedLocations.isEmpty {
                     Section("Lieux déjà utilisés") {
                         ForEach(suggestedLocations, id: \.self) { suggestion in
                             Button(suggestion) {
@@ -902,6 +946,12 @@ private struct CreateCompetitionSheet: View {
             .onChange(of: competitionType) { _, nextValue in
                 if nextValue != .match {
                     opponentName = ""
+                    matchVenue = nil
+                }
+            }
+            .onChange(of: matchVenue) { _, nextValue in
+                if nextValue == .home {
+                    location = ""
                 }
             }
             .toolbar {
@@ -916,13 +966,20 @@ private struct CreateCompetitionSheet: View {
                             await onSubmit()
                         }
                     }
-                    .disabled(
-                        location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || (competitionType == .match && opponentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    )
+                    .disabled(isSubmitDisabled)
                 }
             }
         }
+    }
+
+    private var shouldShowLocationField: Bool {
+        competitionType != .match || matchVenue == .away
+    }
+
+    private var isSubmitDisabled: Bool {
+        (shouldShowLocationField && location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        || (competitionType == .match && opponentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        || (competitionType == .match && matchVenue == nil)
     }
 
     private var locationSectionTitle: String {

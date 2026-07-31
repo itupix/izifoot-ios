@@ -1083,9 +1083,9 @@ private struct MatchdayInfoCard: View {
             case .location:
                 VStack(alignment: .leading, spacing: 12) {
                     AddressMapPreview(address: mapAddress)
-                    Text(mapAddress ?? "Adresse à définir")
+                    Text(mapAddress ?? matchday.locationDisplayLabel)
                         .font(.subheadline)
-                        .foregroundStyle(mapAddress == nil ? .secondary : .primary)
+                        .foregroundStyle(mapAddress == nil && !matchday.isHomeMatch ? .secondary : .primary)
                 }
             case .schedule:
                 VStack(alignment: .leading, spacing: 14) {
@@ -1105,15 +1105,7 @@ private struct MatchdayInfoCard: View {
     }
 
     private var mapAddress: String? {
-        let trimmedAddress = matchday.address?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmedAddress, !trimmedAddress.isEmpty {
-            return trimmedAddress
-        }
-        let trimmedLocation = matchday.lieu?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmedLocation, !trimmedLocation.isEmpty {
-            return trimmedLocation
-        }
-        return nil
+        matchday.mapQuery
     }
 }
 

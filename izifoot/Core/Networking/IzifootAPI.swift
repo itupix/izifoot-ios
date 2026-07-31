@@ -661,6 +661,7 @@ final class IzifootAPI {
         startTime: String?,
         meetingTime: String?,
         competitionType: String? = nil,
+        matchVenue: String? = nil,
         opponentName: String? = nil,
         tournamentHasGroupStage: Bool? = nil,
         tournamentKnockoutMode: String? = nil
@@ -676,6 +677,7 @@ final class IzifootAPI {
             let startTime: String?
             let meetingTime: String?
             let competitionType: String?
+            let matchVenue: String?
             let opponentName: String?
             let tournamentHasGroupStage: Bool?
             let tournamentKnockoutMode: String?
@@ -694,6 +696,7 @@ final class IzifootAPI {
                 startTime: startTime,
                 meetingTime: meetingTime,
                 competitionType: competitionType,
+                matchVenue: matchVenue,
                 opponentName: opponentName,
                 tournamentHasGroupStage: tournamentHasGroupStage,
                 tournamentKnockoutMode: tournamentKnockoutMode

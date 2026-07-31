@@ -49,7 +49,7 @@ struct PublicMatchdayView: View {
                 if let matchday = viewModel.matchday {
                     Section("Plateau public") {
                         LabeledContent("Date", value: DateFormatters.display(matchday.date))
-                        LabeledContent("Lieu", value: matchday.lieu ?? "-")
+                        LabeledContent("Lieu", value: matchday.locationDisplayLabel)
                         if let startTime = matchday.startTime {
                             LabeledContent("Début", value: startTime)
                         }
