@@ -674,7 +674,10 @@ extension Matchday {
     }
 
     var isHomeMatch: Bool {
-        normalizedCompetitionType == "MATCH" && matchVenue?.uppercased() == "HOME"
+        let normalizedVenue = matchVenue?.uppercased()
+        let trimmedLocation = lieu?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalizedCompetitionType == "MATCH"
+            && (normalizedVenue == "HOME" || trimmedLocation.isEmpty)
     }
 
     var locationDisplayLabel: String {
