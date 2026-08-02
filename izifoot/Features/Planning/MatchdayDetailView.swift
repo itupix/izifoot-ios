@@ -41,6 +41,155 @@ fileprivate enum MatchdayModeSwitchConfirmation: Identifiable {
     }
 }
 
+fileprivate struct StoredTeamTacticSlot: Decodable {
+    let id: String
+    let pointID: String
+}
+
+fileprivate struct StoredTeamTactic: Decodable {
+    let id: String
+    let name: String
+    let slots: [StoredTeamTacticSlot]
+}
+
+fileprivate func preferredMatchPreset(for playersOnField: Int) -> String {
+    switch playersOnField {
+    case 5: return "formation:diamond"
+    case 8: return "formation:3-3-1"
+    case 11: return "formation:4-3-3"
+    default: return "formation:balanced"
+    }
+}
+
+fileprivate func playersOnFieldFromStoredTeamFormat(_ rawFormat: String?) -> Int? {
+    switch rawFormat?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "3v3":
+        return 3
+    case "5v5":
+        return 5
+    case "8v8":
+        return 8
+    case "11v11":
+        return 11
+    default:
+        return nil
+    }
+}
+
+fileprivate func storedTeamTacticPoint(by pointID: String) -> MatchTacticPoint? {
+    switch pointID {
+    case "p1": return MatchTacticPoint(x: 50, y: 90)
+    case "p2": return MatchTacticPoint(x: 20, y: 82)
+    case "p3": return MatchTacticPoint(x: 35, y: 82)
+    case "p4": return MatchTacticPoint(x: 50, y: 82)
+    case "p5": return MatchTacticPoint(x: 65, y: 82)
+    case "p6": return MatchTacticPoint(x: 80, y: 82)
+    case "p7": return MatchTacticPoint(x: 14, y: 72)
+    case "p8": return MatchTacticPoint(x: 26, y: 72)
+    case "p9": return MatchTacticPoint(x: 38, y: 72)
+    case "p10": return MatchTacticPoint(x: 50, y: 72)
+    case "p11": return MatchTacticPoint(x: 62, y: 72)
+    case "p12": return MatchTacticPoint(x: 74, y: 72)
+    case "p13": return MatchTacticPoint(x: 86, y: 72)
+    case "p14": return MatchTacticPoint(x: 10, y: 60)
+    case "p15": return MatchTacticPoint(x: 20, y: 60)
+    case "p16": return MatchTacticPoint(x: 30, y: 60)
+    case "p17": return MatchTacticPoint(x: 40, y: 60)
+    case "p18": return MatchTacticPoint(x: 50, y: 60)
+    case "p19": return MatchTacticPoint(x: 60, y: 60)
+    case "p20": return MatchTacticPoint(x: 70, y: 60)
+    case "p21": return MatchTacticPoint(x: 80, y: 60)
+    case "p22": return MatchTacticPoint(x: 90, y: 60)
+    case "p23": return MatchTacticPoint(x: 10, y: 48)
+    case "p24": return MatchTacticPoint(x: 20, y: 48)
+    case "p25": return MatchTacticPoint(x: 30, y: 48)
+    case "p26": return MatchTacticPoint(x: 40, y: 48)
+    case "p27": return MatchTacticPoint(x: 50, y: 48)
+    case "p28": return MatchTacticPoint(x: 60, y: 48)
+    case "p29": return MatchTacticPoint(x: 70, y: 48)
+    case "p30": return MatchTacticPoint(x: 80, y: 48)
+    case "p31": return MatchTacticPoint(x: 90, y: 48)
+    case "p32": return MatchTacticPoint(x: 14, y: 36)
+    case "p33": return MatchTacticPoint(x: 26, y: 36)
+    case "p34": return MatchTacticPoint(x: 38, y: 36)
+    case "p35": return MatchTacticPoint(x: 50, y: 36)
+    case "p36": return MatchTacticPoint(x: 62, y: 36)
+    case "p37": return MatchTacticPoint(x: 74, y: 36)
+    case "p38": return MatchTacticPoint(x: 86, y: 36)
+    case "p39": return MatchTacticPoint(x: 20, y: 24)
+    case "p40": return MatchTacticPoint(x: 35, y: 24)
+    case "p41": return MatchTacticPoint(x: 50, y: 24)
+    case "p42": return MatchTacticPoint(x: 65, y: 24)
+    case "p43": return MatchTacticPoint(x: 80, y: 24)
+    case "p44": return MatchTacticPoint(x: 30, y: 14)
+    case "p45": return MatchTacticPoint(x: 50, y: 14)
+    case "p46": return MatchTacticPoint(x: 70, y: 14)
+    default: return nil
+    }
+}
+
+fileprivate func exactMatchTacticPoints(
+    _ points: [String: MatchTacticPoint]?,
+    tokens: [String]
+) -> [String: MatchTacticPoint]? {
+    guard let points, points.count == tokens.count else { return nil }
+    var next: [String: MatchTacticPoint] = [:]
+    for token in tokens {
+        guard let point = points[token] else { return nil }
+        next[token] = point
+    }
+    return next
+}
+
+fileprivate func readStoredTeamTactics(
+    scopeKey: String,
+    playersOnField: Int
+) -> [StoredTeamTactic] {
+    let defaults = UserDefaults.standard
+    let currentKey = "izifoot.team.tactics.json.\(scopeKey).\(playersOnField)"
+    let legacyKey = "izifoot.team.tactics.json.\(scopeKey)"
+
+    let decode: (String?) -> [StoredTeamTactic] = { raw in
+        guard let raw,
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([StoredTeamTactic].self, from: data) else {
+            return []
+        }
+        return decoded.filter { $0.slots.count == playersOnField }
+    }
+
+    let current = decode(defaults.string(forKey: currentKey))
+    if !current.isEmpty { return current }
+    return decode(defaults.string(forKey: legacyKey))
+}
+
+fileprivate func readStoredTeamTacticLayout(
+    scopeKey: String,
+    playersOnField: Int
+) -> (preset: String, points: [String: MatchTacticPoint])? {
+    let tactics = readStoredTeamTactics(scopeKey: scopeKey, playersOnField: playersOnField)
+    guard !tactics.isEmpty else { return nil }
+
+    let defaults = UserDefaults.standard
+    let currentSelectedKey = "izifoot.team.tactics.selected.\(scopeKey).\(playersOnField)"
+    let legacySelectedKey = "izifoot.team.tactics.selected.\(scopeKey)"
+    let selectedID = defaults.string(forKey: currentSelectedKey)
+        ?? defaults.string(forKey: legacySelectedKey)
+    let tactic = tactics.first(where: { $0.id == selectedID }) ?? tactics.first
+    guard let tactic else { return nil }
+
+    let tokens = ["gk"] + (1..<playersOnField).map { "p\($0)" }
+    guard tactic.slots.count >= tokens.count else { return nil }
+
+    var points: [String: MatchTacticPoint] = [:]
+    for (token, slot) in zip(tokens, tactic.slots) {
+        guard let point = storedTeamTacticPoint(by: slot.pointID) else { return nil }
+        points[token] = point
+    }
+
+    return (preferredMatchPreset(for: playersOnField), points)
+}
+
 @MainActor
 final class MatchdayDetailViewModel: ObservableObject {
     @Published private(set) var matchday: Matchday
@@ -225,7 +374,11 @@ final class MatchdayDetailViewModel: ObservableObject {
         }
     }
 
-    fileprivate func saveManualMatch(draft: ManualMatchDraft, matchID: String?) async -> Bool {
+    fileprivate func saveManualMatch(
+        draft: ManualMatchDraft,
+        matchID: String?,
+        defaultTactic: MatchTacticPayload?
+    ) async -> Bool {
         let opponentName = draft.opponentName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !opponentName.isEmpty else {
             errorMessage = "Le nom de l'adversaire est obligatoire."
@@ -247,7 +400,7 @@ final class MatchdayDetailViewModel: ObservableObject {
             opponentName: opponentName,
             played: draft.played,
             rotationGameKey: nil,
-            tactic: nil
+            tactic: matchID == nil ? defaultTactic : nil
         )
 
         do {
@@ -484,7 +637,11 @@ struct MatchdayDetailView: View {
                 manualDraft(from: match)
             },
             onSaveManualMatch: { editor, draft in
-                await viewModel.saveManualMatch(draft: draft, matchID: editor.match?.id)
+                await viewModel.saveManualMatch(
+                    draft: draft,
+                    matchID: editor.match?.id,
+                    defaultTactic: matchdayDefaultTactic
+                )
             },
             onDeleteManualMatch: { editor in
                 guard let match = editor.match else { return false }
@@ -649,6 +806,31 @@ struct MatchdayDetailView: View {
         guard let role = authStore.me?.role else { return false }
         let requiresSelection = (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty
         return (role == .direction || role == .coach) && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
+    }
+
+    private var matchdayTeamFormat: String? {
+        guard let matchdayTeamID = viewModel.matchday.teamId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !matchdayTeamID.isEmpty else {
+            return nil
+        }
+        return teamScopeStore.teams.first(where: { $0.id == matchdayTeamID })?.format
+    }
+
+    private var matchdayDefaultTactic: MatchTacticPayload? {
+        guard let matchdayTeamID = viewModel.matchday.teamId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !matchdayTeamID.isEmpty else {
+            return nil
+        }
+        let playersOnField = playersOnFieldFromStoredTeamFormat(matchdayTeamFormat) ?? 5
+        guard let stored = readStoredTeamTacticLayout(scopeKey: matchdayTeamID, playersOnField: playersOnField) else {
+            return nil
+        }
+        return MatchTacticPayload(
+            preset: stored.preset,
+            points: Dictionary(uniqueKeysWithValues: stored.points.map { key, point in
+                (key, MatchTacticPointPayload(x: point.x, y: point.y))
+            })
+        )
     }
 
     private var isMatchCompetition: Bool {
@@ -2647,13 +2829,22 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         benchOrder = currentBenchPool(for: detail, assignments: assignments)
         selectedComposition = nil
 
-        selectedPreset = detail.tactic?.preset ?? preferredPreset(for: playersOnField)
-        tacticPoints = {
-            if let points = detail.tactic?.points, !points.isEmpty {
-                return points
-            }
-            return defaultPoints(tokens: tokens, playersOnField: playersOnField, preset: selectedPreset)
-        }()
+        if let persistedPoints = exactMatchTacticPoints(detail.tactic?.points, tokens: tokens) {
+            selectedPreset = detail.tactic?.preset ?? preferredPreset(for: playersOnField)
+            tacticPoints = persistedPoints
+            return
+        }
+
+        if let scopeKey = detail.teamId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !scopeKey.isEmpty,
+           let stored = readStoredTeamTacticLayout(scopeKey: scopeKey, playersOnField: playersOnField) {
+            selectedPreset = stored.preset
+            tacticPoints = stored.points
+            return
+        }
+
+        selectedPreset = preferredPreset(for: playersOnField)
+        tacticPoints = defaultPoints(tokens: tokens, playersOnField: playersOnField, preset: selectedPreset)
     }
 
     private func markCompositionChanged() {
@@ -2787,12 +2978,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
     }
 
     private func preferredPreset(for playersOnField: Int) -> String {
-        switch playersOnField {
-        case 5: return "formation:diamond"
-        case 8: return "formation:3-3-1"
-        case 11: return "formation:4-3-3"
-        default: return "formation:balanced"
-        }
+        preferredMatchPreset(for: playersOnField)
     }
 
     private func playersOnFieldFromPreset(_ preset: String) -> Int? {
@@ -2804,18 +2990,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
     }
 
     private func playersOnFieldFromGameFormat(_ rawFormat: String?) -> Int? {
-        switch rawFormat?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "3v3":
-            return 3
-        case "5v5":
-            return 5
-        case "8v8":
-            return 8
-        case "11v11":
-            return 11
-        default:
-            return nil
-        }
+        playersOnFieldFromStoredTeamFormat(rawFormat)
     }
 }
 
