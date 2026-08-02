@@ -886,6 +886,8 @@ struct MatchLite: Decodable, Identifiable {
     let createdAt: String
     let date: String?
     let type: String
+    let teamId: String?
+    let teamFormat: String?
     let matchdayId: String?
     let seasonId: String?
     let season: Season?
@@ -905,6 +907,10 @@ struct MatchLite: Decodable, Identifiable {
         case created_at
         case date
         case type
+        case teamId
+        case teamFormat
+        case gameFormat
+        case game_format
         case matchdayId
         case matchday_id
         case seasonId
@@ -932,6 +938,10 @@ struct MatchLite: Decodable, Identifiable {
             ?? ""
         date = try? container.decodeIfPresent(String.self, forKey: .date)
         type = try container.decode(String.self, forKey: .type)
+        teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+        teamFormat = (try? container.decodeIfPresent(String.self, forKey: .teamFormat))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .gameFormat))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .game_format))
         matchdayId = (try? container.decodeIfPresent(String.self, forKey: .matchdayId))
             ?? (try? container.decodeIfPresent(String.self, forKey: .matchday_id))
         seasonId = (try? container.decodeIfPresent(String.self, forKey: .seasonId))
@@ -990,6 +1000,8 @@ struct MatchdayConvocation: Decodable, Identifiable {
 struct MatchDetail: Decodable, Identifiable {
     let id: String
     let type: String
+    let teamId: String?
+    let teamFormat: String?
     let matchdayId: String?
     let opponentName: String?
     let played: Bool?
@@ -1005,6 +1017,10 @@ struct MatchDetail: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id
         case type
+        case teamId
+        case teamFormat
+        case gameFormat
+        case game_format
         case matchdayId
         case matchday_id
         case opponentName
@@ -1027,6 +1043,8 @@ struct MatchDetail: Decodable, Identifiable {
     init(
         id: String,
         type: String,
+        teamId: String?,
+        teamFormat: String?,
         matchdayId: String?,
         opponentName: String?,
         played: Bool?,
@@ -1041,6 +1059,8 @@ struct MatchDetail: Decodable, Identifiable {
     ) {
         self.id = id
         self.type = type
+        self.teamId = teamId
+        self.teamFormat = teamFormat
         self.matchdayId = matchdayId
         self.opponentName = opponentName
         self.played = played
@@ -1058,6 +1078,10 @@ struct MatchDetail: Decodable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         type = (try? container.decode(String.self, forKey: .type)) ?? "PLATEAU"
+        teamId = try? container.decodeIfPresent(String.self, forKey: .teamId)
+        teamFormat = (try? container.decodeIfPresent(String.self, forKey: .teamFormat))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .gameFormat))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .game_format))
         matchdayId = (try? container.decodeIfPresent(String.self, forKey: .matchdayId))
             ?? (try? container.decodeIfPresent(String.self, forKey: .matchday_id))
         opponentName = (try? container.decodeIfPresent(String.self, forKey: .opponentName))

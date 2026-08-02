@@ -2452,6 +2452,9 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
 
     var playersOnField: Int {
         guard let detail = matchDetail else { return 5 }
+        if let formatCount = playersOnFieldFromGameFormat(detail.teamFormat) {
+            return formatCount
+        }
         let startersCount = detail.homeStarters.count
         if [3, 5, 8, 11].contains(startersCount) {
             return startersCount
@@ -2585,6 +2588,8 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             teams: updatedTeams,
             scorers: updatedHomeScorers + detail.scorers.filter { $0.side != "home" },
             tactic: detail.tactic,
+            teamId: detail.teamId,
+            teamFormat: detail.teamFormat,
             startTime: detail.startTime,
             terrain: detail.terrain,
             field: detail.field
@@ -2622,6 +2627,8 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             },
             scorers: match.scorers,
             tactic: nil,
+            teamId: match.teamId,
+            teamFormat: match.teamFormat,
             startTime: match.startTime,
             terrain: match.terrain,
             field: match.field
@@ -2794,6 +2801,21 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         if preset.contains("5") || preset.contains("diamond") || preset.contains("square") || preset.contains("balanced") { return 5 }
         if preset.contains("3") { return 3 }
         return nil
+    }
+
+    private func playersOnFieldFromGameFormat(_ rawFormat: String?) -> Int? {
+        switch rawFormat?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "3v3":
+            return 3
+        case "5v5":
+            return 5
+        case "8v8":
+            return 8
+        case "11v11":
+            return 11
+        default:
+            return nil
+        }
     }
 }
 
