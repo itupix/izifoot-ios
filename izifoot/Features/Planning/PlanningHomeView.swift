@@ -170,13 +170,15 @@ private enum MatchVenueChoice: String, CaseIterable, Identifiable {
 }
 
 struct PlanningHomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var authStore: AuthStore
     @EnvironmentObject private var teamScopeStore: TeamScopeStore
 
     @AppStorage("izifoot.planning.lastDate") private var storedPlanningDate = ""
+    @AppStorage("izifoot.planning.lastDateSavedOnDay") private var storedPlanningDateSavedOnDay = ""
 
     @StateObject private var viewModel = PlanningHomeViewModel()
-    @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: nil)
+    @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: nil, storedOnDay: nil)
     @State private var isDatePickerPresented = false
     @State private var isTrainingCreationConfirmationPresented = false
     @State private var isCompetitionSheetPresented = false
@@ -306,11 +308,19 @@ struct PlanningHomeView: View {
                 await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             }
             .task {
-                selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: storedPlanningDate)
+                revalidateSelectedDate()
                 await viewModel.load(cacheKey: dataCacheKey)
+            }
+            .onAppear {
+                revalidateSelectedDate()
+            }
+            .onChange(of: scenePhase) { _, newValue in
+                guard newValue == .active else { return }
+                revalidateSelectedDate()
             }
             .onChange(of: selectedDate) { _, newValue in
                 storedPlanningDate = PlanningDateHelpers.storageKey(for: newValue)
+                storedPlanningDateSavedOnDay = PlanningDateHelpers.storageKey(for: PlanningDateHelpers.today)
             }
             .sheet(isPresented: $isDatePickerPresented) {
                 PlanningDatePickerSheet(
@@ -601,14 +611,25 @@ struct PlanningHomeView: View {
             return currentTeamID == selectedTeamID
         }
     }
+
+    private func revalidateSelectedDate() {
+        selectedDate = PlanningDateHelpers.defaultSelectedDate(
+            storedValue: storedPlanningDate,
+            storedOnDay: storedPlanningDateSavedOnDay
+        )
+    }
 }
 
 private enum PlanningDateHelpers {
     static let calendar = Calendar(identifier: .gregorian)
-    static let today = calendar.startOfDay(for: Date())
+    static var today: Date {
+        calendar.startOfDay(for: Date())
+    }
 
-    static func defaultSelectedDate(storedValue: String?) -> Date {
-        guard let storedValue, let parsed = parseStorageKey(storedValue) else { return today }
+    static func defaultSelectedDate(storedValue: String?, storedOnDay: String?) -> Date {
+        guard storedOnDay == storageKey(for: today),
+              let storedValue,
+              let parsed = parseStorageKey(storedValue) else { return today }
         return parsed
     }
 

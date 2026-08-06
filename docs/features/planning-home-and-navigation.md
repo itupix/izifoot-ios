@@ -100,6 +100,7 @@ Constraints: requires normalization for optional fields.
 
 ## 13. Persistence
 - In-memory list state and creation forms.
+- The last visited planning date is persisted only for the current local calendar day; on a later day the default selection resets to today, with revalidation when the view reappears or the app returns to the foreground.
 - Backend persistence in session tables.
 
 ## 14. Dependencies
@@ -146,12 +147,17 @@ Constraints: requires normalization for optional fields.
 2. Coach/direction can create sessions from mobile UI.
 3. Parent/player cannot create sessions.
 4. Navigation to details works reliably.
+5. Reopening planning on the same local day restores the last visited date.
+6. Reopening planning on a later local day defaults to today.
 
 ## 21. Test Scenarios
 - Happy path: create training then open detail.
 - Permissions: parent create button absent and backend denies forced calls.
 - Errors: offline create attempt.
 - Edge cases: empty list on new team.
+- Persistence: reopen planning on the same day restores the last visited date.
+- Persistence: reopen planning the next day resets the selected date to today.
+- Lifecycle: returning from background after local midnight resets to today when planning becomes active again, without forcing a date jump during an active session.
 
 ## 22. Technical References
 - `izifoot/Features/Planning/PlanningHomeView.swift`
