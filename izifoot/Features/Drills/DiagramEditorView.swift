@@ -69,7 +69,7 @@ struct DiagramEditorView: View {
                     Image(systemName: "backward.fill")
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .circleButtonBorderCompatibility()
                 .disabled(activeFrameIndex == 0)
 
                 Button {
@@ -78,7 +78,7 @@ struct DiagramEditorView: View {
                     Image(systemName: "forward.fill")
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .circleButtonBorderCompatibility()
                 .disabled(activeFrameIndex >= frames.count - 1)
 
                 Button {
@@ -87,7 +87,7 @@ struct DiagramEditorView: View {
                     Image(systemName: "rotate.right.fill")
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .circleButtonBorderCompatibility()
             }
 
             DiagramFieldSurface(
@@ -393,5 +393,16 @@ struct DiagramEditorView: View {
             orientation: data.orientation,
             rotationQuarterTurns: data.rotationQuarterTurns
         )
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func circleButtonBorderCompatibility() -> some View {
+        if #available(iOS 17.0, *) {
+            self.buttonBorderShape(.circle)
+        } else {
+            self.clipShape(Circle())
+        }
     }
 }

@@ -401,7 +401,7 @@ struct PlanningHomeView: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .circleButtonBorderCompatibility()
 
             Button {
                 selectedDate = PlanningDateHelpers.today
@@ -430,7 +430,7 @@ struct PlanningHomeView: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .circleButtonBorderCompatibility()
 
                 Button {
                     isDatePickerPresented = true
@@ -440,7 +440,7 @@ struct PlanningHomeView: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .circleButtonBorderCompatibility()
             }
         }
     }
@@ -837,7 +837,7 @@ private struct PlanningDatePickerSheet: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .circleButtonBorderCompatibility()
 
             Spacer()
 
@@ -860,7 +860,7 @@ private struct PlanningDatePickerSheet: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .circleButtonBorderCompatibility()
         }
         .padding(.bottom, 2)
     }
@@ -895,6 +895,17 @@ private struct PlanningDatePickerSheet: View {
                     day: day
                 )
             )
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func circleButtonBorderCompatibility() -> some View {
+        if #available(iOS 17.0, *) {
+            self.buttonBorderShape(.circle)
+        } else {
+            self.clipShape(Circle())
         }
     }
 }

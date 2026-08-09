@@ -112,7 +112,7 @@ struct DiagramPlayerView: View {
                 .frame(width: 48, height: 48)
         }
         .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
+        .circleButtonBorderCompatibility()
         .disabled(disabled)
     }
 
@@ -209,5 +209,16 @@ struct DiagramPlayerView: View {
 private extension Collection {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func circleButtonBorderCompatibility() -> some View {
+        if #available(iOS 17.0, *) {
+            self.buttonBorderShape(.circle)
+        } else {
+            self.clipShape(Circle())
+        }
     }
 }
