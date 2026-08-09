@@ -936,8 +936,7 @@ private struct ExercisesCard: View {
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .scrollDisabled(true)
-                .scrollClipDisabled()
-                .contentMargins(.vertical, 0, for: .scrollContent)
+                .trainingDrillListCompatibilityLayout()
                 .frame(height: min(CGFloat(trainingDrills.count) * 52, 360))
             }
         }
@@ -1611,5 +1610,18 @@ private struct DetailCard<Content: View>: View {
             radius: 10,
             y: 3
         )
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func trainingDrillListCompatibilityLayout() -> some View {
+        if #available(iOS 17.0, *) {
+            self
+                .scrollClipDisabled()
+                .contentMargins(.vertical, 0, for: .scrollContent)
+        } else {
+            self
+        }
     }
 }

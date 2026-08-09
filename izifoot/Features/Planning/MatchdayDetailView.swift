@@ -2264,7 +2264,7 @@ private struct MatchdayMatchDetailView: View {
             if let match = resolvedMatch {
                 matchContent(for: match)
             } else {
-                ContentUnavailableView("Match indisponible", systemImage: "sportscourt", description: Text("Ce match n'est plus disponible."))
+                MatchUnavailableStateView()
             }
         }
         .alert("Erreur", isPresented: Binding(
@@ -4908,33 +4908,38 @@ private struct MatchdayAttendanceSelectionSheet: View {
     }
 }
 
+private struct MatchUnavailableStateView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sportscourt")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+
+            Text("Match indisponible")
+                .font(.headline)
+
+            Text("Ce match n'est plus disponible.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+}
+
 private struct AddressMapPreview: View {
     let address: String?
 
-    @State private var position: MapCameraPosition = .automatic
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var isResolving = false
 
     var body: some View {
         ZStack {
             if let coordinate {
-                Map(position: $position) {
-                    Marker(address ?? "Lieu", coordinate: coordinate)
-                }
-                .mapStyle(.standard)
+                mapView(for: coordinate)
             } else {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(uiColor: .tertiarySystemBackground))
-                    .overlay {
-                        VStack(spacing: 8) {
-                            Image(systemName: "map")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                            Text(address == nil ? "Adresse à définir" : "Carte indisponible")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                AddressMapPlaceholderView(message: normalizedAddress == nil ? "Adresse à définir" : "Carte indisponible")
             }
 
             if isResolving {
@@ -4946,13 +4951,28 @@ private struct AddressMapPreview: View {
         }
         .frame(height: 190)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .task(id: address) {
+        .task(id: normalizedAddress) {
             await resolveAddress()
         }
     }
 
+    @ViewBuilder
+    private func mapView(for coordinate: CLLocationCoordinate2D) -> some View {
+        if #available(iOS 17.0, *) {
+            AddressModernMapView(address: address, coordinate: coordinate)
+        } else {
+            AddressLegacyMapView(address: address, coordinate: coordinate)
+        }
+    }
+
+    private var normalizedAddress: String? {
+        guard let address else { return nil }
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func resolveAddress() async {
-        guard let address, !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let normalizedAddress else {
             coordinate = nil
             return
         }
@@ -4961,29 +4981,26 @@ private struct AddressMapPreview: View {
         defer { isResolving = false }
 
         do {
-            guard let request = MKGeocodingRequest(addressString: address) else {
-                coordinate = nil
-                return
-            }
-            let mapItems = try await geocode(request: request)
-            guard let location = mapItems.first?.location.coordinate else {
-                coordinate = nil
-                return
-            }
-            coordinate = location
-            position = .region(
-                MKCoordinateRegion(
-                    center: location,
-                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                )
-            )
+            coordinate = try await geocodeCoordinate(for: normalizedAddress)
         } catch {
             coordinate = nil
         }
     }
 
-    private func geocode(request: MKGeocodingRequest) async throws -> [MKMapItem] {
-        try await withCheckedThrowingContinuation { continuation in
+    private func geocodeCoordinate(for address: String) async throws -> CLLocationCoordinate2D? {
+        if #available(iOS 26.0, *) {
+            return try await geocodeCoordinateWithMapKit(for: address)
+        }
+        return try await geocodeCoordinateWithCoreLocation(for: address)
+    }
+
+    @available(iOS 26.0, *)
+    private func geocodeCoordinateWithMapKit(for address: String) async throws -> CLLocationCoordinate2D? {
+        guard let request = MKGeocodingRequest(addressString: address) else {
+            return nil
+        }
+
+        let mapItems = try await withCheckedThrowingContinuation { continuation in
             request.getMapItems { items, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -4992,6 +5009,82 @@ private struct AddressMapPreview: View {
                 }
             }
         }
+        return mapItems.first?.location.coordinate
+    }
+
+    private func geocodeCoordinateWithCoreLocation(for address: String) async throws -> CLLocationCoordinate2D? {
+        let placemarks = try await withCheckedThrowingContinuation { continuation in
+            CLGeocoder().geocodeAddressString(address) { placemarks, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: placemarks ?? [])
+                }
+            }
+        }
+        return placemarks.first?.location?.coordinate
+    }
+
+    fileprivate static func region(for coordinate: CLLocationCoordinate2D) -> MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+    }
+}
+
+private struct AddressMapPlaceholderView: View {
+    let message: String
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color(uiColor: .tertiarySystemBackground))
+            .overlay {
+                VStack(spacing: 8) {
+                    Image(systemName: "map")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+    }
+}
+
+@available(iOS 17.0, *)
+private struct AddressModernMapView: View {
+    let address: String?
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some View {
+        Map(initialPosition: .region(AddressMapPreview.region(for: coordinate))) {
+            Marker(address ?? "Lieu", coordinate: coordinate)
+        }
+        .mapStyle(.standard)
+    }
+}
+
+private struct AddressLegacyMapView: UIViewRepresentable {
+    let address: String?
+    let coordinate: CLLocationCoordinate2D
+
+    func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView(frame: .zero)
+        mapView.isPitchEnabled = false
+        mapView.isRotateEnabled = false
+        mapView.showsCompass = false
+        return mapView
+    }
+
+    func updateUIView(_ mapView: MKMapView, context: Context) {
+        mapView.setRegion(AddressMapPreview.region(for: coordinate), animated: false)
+        mapView.removeAnnotations(mapView.annotations)
+
+        let annotation = MKPointAnnotation()
+        annotation.coordinate = coordinate
+        annotation.title = address ?? "Lieu"
+        mapView.addAnnotation(annotation)
     }
 }
 
