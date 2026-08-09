@@ -573,11 +573,8 @@ struct TrainingDetailView: View {
             }
             self.pendingRoleSaveRequest = nil
         }
-        .navigationDestination(item: $selectedDrillTarget) { target in
-            DrillDetailView(
-                drillID: target.drillID,
-                trainingDrillID: target.trainingDrillID
-            )
+        .navigationDestination(isPresented: selectedDrillTargetPresentation) {
+            selectedDrillDestination
         }
         .onChange(of: viewModel.errorMessage) { newValue in
             guard let newValue, !newValue.isEmpty else { return }
@@ -596,6 +593,27 @@ struct TrainingDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var selectedDrillTargetPresentation: Binding<Bool> {
+        Binding(
+            get: { selectedDrillTarget != nil },
+            set: { isPresented in
+                if !isPresented {
+                    selectedDrillTarget = nil
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var selectedDrillDestination: some View {
+        if let target = selectedDrillTarget {
+            DrillDetailView(
+                drillID: target.drillID,
+                trainingDrillID: target.trainingDrillID
+            )
         }
     }
 
@@ -1409,7 +1427,7 @@ private struct RoleEditorSheet: View {
             }
             .fullScreenCover(isPresented: $isRandomizing) {
                 RandomizingOverlay(name: rollingName)
-                    .presentationBackground(.clear)
+                    .randomizingOverlayBackgroundCompatibility()
             }
         }
     }
@@ -1620,6 +1638,15 @@ private extension View {
             self
                 .scrollClipDisabled()
                 .contentMargins(.vertical, 0, for: .scrollContent)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func randomizingOverlayBackgroundCompatibility() -> some View {
+        if #available(iOS 16.4, *) {
+            self.presentationBackground(.clear)
         } else {
             self
         }
