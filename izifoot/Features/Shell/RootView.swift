@@ -13,6 +13,17 @@ struct RootView: View {
                 AuthView()
             }
         }
-        .scrollBounceBehavior(.always)
+        .rootScrollBounceBehaviorCompatibility()
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func rootScrollBounceBehaviorCompatibility() -> some View {
+        if #available(iOS 16.4, *) {
+            self.scrollBounceBehavior(.always)
+        } else {
+            self
+        }
     }
 }
