@@ -1140,7 +1140,7 @@ private struct MatchdayDetailScaffold: View {
                 self.pendingScheduleSaveRequest = nil
             }
             .onAppear(perform: onAppear)
-            .onChange(of: viewModel.summary?.mode) { _, _ in
+            .onChange(of: viewModel.summary?.mode) { _ in
                 onAppear()
             }
     }
@@ -1376,7 +1376,7 @@ private struct MatchdayPlanningDetailView: View {
                 onSave: onSave
             )
         }
-        .onChange(of: planningSaveRevision) { _, _ in
+        .onChange(of: planningSaveRevision) { _ in
             isEditorPresented = false
         }
         .confirmationDialog(
@@ -3370,32 +3370,32 @@ private struct MatchDetailHeroCard: View {
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.34), value: shouldUseExpandedLayout)
         .onAppear(perform: syncDraftFromMatch)
-        .onChange(of: match.id) { _, _ in
+        .onChange(of: match.id) { _ in
             stagedAnimationTask?.cancel()
             syncDraftFromMatch()
             isEditing = false
             flipAngle = 0
             shouldUseExpandedLayout = false
         }
-        .onChange(of: match.scorers.map(\.playerId).joined(separator: "|")) { _, _ in
+        .onChange(of: match.scorers.map(\.playerId).joined(separator: "|")) { _ in
             syncDraftFromMatch()
         }
-        .onChange(of: homeScore) { _, _ in
+        .onChange(of: homeScore) { _ in
             if !isEditing {
                 syncDraftFromMatch()
             }
         }
-        .onChange(of: awayScore) { _, _ in
+        .onChange(of: awayScore) { _ in
             if !isEditing {
                 syncDraftFromMatch()
             }
         }
-        .onChange(of: match.opponentName) { _, _ in
+        .onChange(of: match.opponentName) { _ in
             if !isEditing {
                 syncDraftFromMatch()
             }
         }
-        .onChange(of: isEditing) { _, newValue in
+        .onChange(of: isEditing) { newValue in
             stagedAnimationTask?.cancel()
             if newValue {
                 shouldUseExpandedLayout = false
@@ -4250,8 +4250,8 @@ private struct PlanningEditorSheet: View {
                     .disabled(isSaving || isSubmitting || planningTeams.count < 2 || generatedSlots.isEmpty)
                 }
             }
-            .onChange(of: isSaving) { oldValue, newValue in
-                if oldValue == true, newValue == false {
+            .onChange(of: isSaving) { newValue in
+                if !newValue {
                     isSubmitting = false
                 }
             }
@@ -4772,8 +4772,8 @@ private struct EditMatchdayScheduleSheet: View {
                     .disabled(isSaving || isSubmitting)
                 }
             }
-            .onChange(of: isSaving) { oldValue, newValue in
-                if oldValue == true, newValue == false {
+            .onChange(of: isSaving) { newValue in
+                if !newValue {
                     isSubmitting = false
                 }
             }
@@ -5000,7 +5000,7 @@ private struct AddressMapPreview: View {
             return nil
         }
 
-        let mapItems = try await withCheckedThrowingContinuation { continuation in
+        let mapItems = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[MKMapItem], Error>) in
             request.getMapItems { items, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -5013,7 +5013,7 @@ private struct AddressMapPreview: View {
     }
 
     private func geocodeCoordinateWithCoreLocation(for address: String) async throws -> CLLocationCoordinate2D? {
-        let placemarks = try await withCheckedThrowingContinuation { continuation in
+        let placemarks = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[CLPlacemark], Error>) in
             CLGeocoder().geocodeAddressString(address) { placemarks, error in
                 if let error {
                     continuation.resume(throwing: error)

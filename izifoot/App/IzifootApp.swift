@@ -19,7 +19,7 @@ struct IzifootApp: App {
                         pushManager.updateAuthenticatedUserID(authStore.me?.id)
                     }
                 }
-                .onChange(of: authStore.me?.id) { _, _ in
+                .onChange(of: authStore.me?.id) { _ in
                     Task {
                         await teamScopeStore.bootstrap(authStore: authStore)
                         await MainActor.run {
@@ -27,7 +27,7 @@ struct IzifootApp: App {
                         }
                     }
                 }
-                .onChange(of: teamScopeStore.selectedTeamID) { _, _ in
+                .onChange(of: teamScopeStore.selectedTeamID) { _ in
                     if let selectedTeamID = teamScopeStore.selectedTeamID {
                         AppSession.shared.activeTeamID = selectedTeamID
                     } else {

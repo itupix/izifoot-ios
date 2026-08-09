@@ -809,13 +809,13 @@ struct PlayersHomeView: View {
             } message: {
                 Text(statsViewModel.errorMessage ?? "")
             }
-            .onChange(of: selectedTab) { _, newValue in
+            .onChange(of: selectedTab) { newValue in
                 guard newValue == .stats else { return }
                 Task {
                     await statsViewModel.load(players: viewModel.players, refreshSeasonCatalog: true)
                 }
             }
-            .onChange(of: statsViewModel.selectedSeasonID) { _, _ in
+            .onChange(of: statsViewModel.selectedSeasonID) { _ in
                 guard selectedTab == .stats else { return }
                 Task {
                     await statsViewModel.load(players: viewModel.players)

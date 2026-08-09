@@ -468,7 +468,7 @@ struct TrainingDetailView: View {
                 trainingEndTimePicker = parsedEndTime
             }
         }
-        .onChange(of: viewModel.training.date) { _, newValue in
+        .onChange(of: viewModel.training.date) { newValue in
             if let parsed = DateFormatters.parseISODate(newValue) {
                 trainingTimeDraft = parsed
                 if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: parsed) {
@@ -476,7 +476,7 @@ struct TrainingDetailView: View {
                 }
             }
         }
-        .onChange(of: viewModel.training.endTime) { _, newValue in
+        .onChange(of: viewModel.training.endTime) { newValue in
             trainingEndTimeDraft = newValue ?? ""
             if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
                 trainingEndTimePicker = parsedEndTime
@@ -579,7 +579,7 @@ struct TrainingDetailView: View {
                 trainingDrillID: target.trainingDrillID
             )
         }
-        .onChange(of: viewModel.errorMessage) { _, newValue in
+        .onChange(of: viewModel.errorMessage) { newValue in
             guard let newValue, !newValue.isEmpty else { return }
             let token = UUID()
             bannerToken = token
@@ -852,8 +852,8 @@ private struct TrainingInfoSheet: View {
                     .disabled(isSaving || isSubmitting)
                 }
             }
-            .onChange(of: isSaving) { oldValue, newValue in
-                if oldValue == true, newValue == false, isSubmitting {
+            .onChange(of: isSaving) { newValue in
+                if !newValue, isSubmitting {
                     dismiss()
                 }
             }
@@ -1278,8 +1278,8 @@ private struct DrillLibraryDetailView: View {
                     }
                 }
             }
-            .onChange(of: isSaving) { oldValue, newValue in
-                if oldValue == true, newValue == false {
+            .onChange(of: isSaving) { newValue in
+                if !newValue {
                     dismiss()
                 }
             }
@@ -1402,8 +1402,8 @@ private struct RoleEditorSheet: View {
                     .disabled(playerID.isEmpty || isSaving || isSubmitting || isRandomizing)
                 }
             }
-            .onChange(of: isSaving) { oldValue, newValue in
-                if oldValue == true, newValue == false {
+            .onChange(of: isSaving) { newValue in
+                if !newValue {
                     isSubmitting = false
                 }
             }

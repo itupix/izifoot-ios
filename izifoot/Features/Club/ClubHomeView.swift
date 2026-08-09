@@ -875,7 +875,7 @@ private struct TeamDetailsSheet: View {
                     .disabled(!canSave)
                 }
             }
-            .onChange(of: sortedSelectedAgeCategories) { _, newValue in
+            .onChange(of: sortedSelectedAgeCategories) { newValue in
                 let suggestion = suggestGameFormat(from: newValue)
                 if !suggestion.isEmpty {
                     teamGameFormat = suggestion
@@ -1030,7 +1030,7 @@ struct SeasonConfigSheet: View {
             }
             .navigationTitle("Saison")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: startDate) { _, newValue in
+            .onChange(of: startDate) { newValue in
                 guard let endDateRange = SeasonSupport.validEndDateRange(for: newValue) else { return }
                 if !endDateRange.contains(endDate) {
                     endDate = endDateRange.upperBound
@@ -1123,7 +1123,7 @@ struct CreateTeamSheet: View {
                 }
             }
             .navigationTitle("Nouvelle équipe")
-            .onChange(of: sortedSelectedAgeCategories) { _, newValue in
+            .onChange(of: sortedSelectedAgeCategories) { newValue in
                 let suggestion = suggestGameFormat(from: newValue)
                 if !suggestion.isEmpty {
                     teamGameFormat = suggestion

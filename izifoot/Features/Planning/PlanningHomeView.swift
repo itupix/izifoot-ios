@@ -314,11 +314,11 @@ struct PlanningHomeView: View {
             .onAppear {
                 revalidateSelectedDate()
             }
-            .onChange(of: scenePhase) { _, newValue in
+            .onChange(of: scenePhase) { newValue in
                 guard newValue == .active else { return }
                 revalidateSelectedDate()
             }
-            .onChange(of: selectedDate) { _, newValue in
+            .onChange(of: selectedDate) { newValue in
                 storedPlanningDate = PlanningDateHelpers.storageKey(for: newValue)
                 storedPlanningDateSavedOnDay = PlanningDateHelpers.storageKey(for: PlanningDateHelpers.today)
             }
@@ -964,13 +964,13 @@ private struct CreateCompetitionSheet: View {
             }
             .navigationTitle("Créer une compétition")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: competitionType) { _, nextValue in
+            .onChange(of: competitionType) { nextValue in
                 if nextValue != .match {
                     opponentName = ""
                     matchVenue = nil
                 }
             }
-            .onChange(of: matchVenue) { _, nextValue in
+            .onChange(of: matchVenue) { nextValue in
                 if nextValue == .home {
                     location = ""
                 }

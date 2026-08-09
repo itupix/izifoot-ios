@@ -163,7 +163,7 @@ struct DiagramEditorView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .onChange(of: data.rotationQuarterTurns) { _, _ in
+        .onChange(of: data.rotationQuarterTurns) { _ in
             dragStartByItemID.removeAll()
             pendingArrowID = nil
         }

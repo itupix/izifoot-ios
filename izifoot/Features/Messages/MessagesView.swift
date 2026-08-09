@@ -310,7 +310,7 @@ struct MessagesView: View {
                 await viewModel.load(cacheKey: dataCacheKey)
                 publishUnreadCount()
             }
-            .onChange(of: authStore.me?.id) { _, newValue in
+            .onChange(of: authStore.me?.id) { newValue in
                 unreadStore.setCurrentUserID(newValue)
                 publishUnreadCount()
             }
@@ -335,10 +335,10 @@ struct MessagesView: View {
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
-            .onChange(of: unreadStore.revision) { _, _ in
+            .onChange(of: unreadStore.revision) { _ in
                 publishUnreadCount()
             }
-            .onChange(of: conversationsSignature) { _, _ in
+            .onChange(of: conversationsSignature) { _ in
                 publishUnreadCount()
             }
         }
@@ -485,7 +485,7 @@ private struct ConversationThreadView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
-                .onChange(of: viewModel.messages.count) { _, _ in
+                .onChange(of: viewModel.messages.count) { _ in
                     guard let last = viewModel.messages.last else { return }
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(last.id, anchor: .bottom)
@@ -553,7 +553,7 @@ private struct ConversationThreadView: View {
                 ActivityShareSheet(items: [url])
             }
         }
-        .onChange(of: viewModel.isConversationUnavailable) { _, isUnavailable in
+        .onChange(of: viewModel.isConversationUnavailable) { isUnavailable in
             if isUnavailable {
                 isComposerFocused = false
                 onConversationUnavailable(viewModel.conversation.id)

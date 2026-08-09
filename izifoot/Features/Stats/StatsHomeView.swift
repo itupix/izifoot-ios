@@ -157,7 +157,7 @@ struct StatsHomeView: View {
             .task {
                 await viewModel.load(cacheKey: dataCacheKey, refreshSeasonCatalog: true)
             }
-            .onChange(of: viewModel.selectedSeasonID) { _, _ in
+            .onChange(of: viewModel.selectedSeasonID) { _ in
                 Task {
                     await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
                 }

@@ -92,7 +92,7 @@ struct DiagramPlayerView: View {
                 controlButton(systemImage: "rotate.right.fill", action: rotateClockwise, disabled: false)
             }
         }
-        .onChange(of: data) { _, nextValue in
+        .onChange(of: data) { nextValue in
             animationTask?.cancel()
             isPlaying = false
             activeIndex = 0
