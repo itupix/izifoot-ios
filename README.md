@@ -26,7 +26,7 @@ Base iOS native SwiftUI alignée avec `izifoot-web` et `api.izifoot.fr`.
 
 L'environnement actuel ne contient pas l'app Xcode complète (pas de `xcodebuild`), donc le code SwiftUI est fourni prêt à intégrer dans un projet iOS Xcode.
 
-1. Créer une app iOS SwiftUI (Xcode 16+, iOS 17+ recommandé).
+1. Créer une app iOS SwiftUI (Xcode 16+, iOS 16+ pris en charge, iOS 17+ recommandé).
 2. Copier le dossier `IzifootIOS` dans le projet.
 3. Ajouter tous les fichiers Swift au target iOS.
 4. Vérifier que le point d’entrée est `IzifootApp`.
