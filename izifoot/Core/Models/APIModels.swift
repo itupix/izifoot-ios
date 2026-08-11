@@ -1174,6 +1174,11 @@ struct MatchDetailTeamPlayer: Decodable, Identifiable, Hashable {
         case role
         case playerName
         case player_name
+        case player
+    }
+
+    private struct EmbeddedPlayer: Decodable {
+        let name: String?
     }
 
     init(from decoder: Decoder) throws {
@@ -1181,10 +1186,12 @@ struct MatchDetailTeamPlayer: Decodable, Identifiable, Hashable {
         let rawPlayerId = (try? container.decodeIfPresent(String.self, forKey: .playerId))
             ?? (try? container.decodeIfPresent(String.self, forKey: .player_id))
             ?? ""
+        let embeddedPlayer = try? container.decodeIfPresent(EmbeddedPlayer.self, forKey: .player)
         playerId = rawPlayerId
         role = (try? container.decodeIfPresent(String.self, forKey: .role)) ?? ""
         playerName = (try? container.decodeIfPresent(String.self, forKey: .playerName))
             ?? (try? container.decodeIfPresent(String.self, forKey: .player_name))
+            ?? embeddedPlayer?.name
         id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? rawPlayerId
     }
 }
