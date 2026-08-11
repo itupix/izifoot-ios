@@ -875,6 +875,30 @@ struct MatchScorer: Decodable, Identifiable {
     }
 }
 
+private func hasHistoricalPlayerName(_ scorer: MatchScorer) -> Bool {
+    guard let name = scorer.playerName?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        return false
+    }
+    return !name.isEmpty
+}
+
+private func mergeHistoricalScorers(primary: [MatchScorer], detailed: [MatchScorer]) -> [MatchScorer] {
+    guard !detailed.isEmpty else { return primary }
+    guard !primary.isEmpty else { return detailed }
+    if primary.contains(where: hasHistoricalPlayerName) { return primary }
+    if primary.count != detailed.count { return detailed }
+
+    return zip(primary, detailed).map { raw, enriched in
+        MatchScorer(
+            id: raw.id ?? enriched.id,
+            playerId: raw.playerId,
+            side: raw.side,
+            playerName: hasHistoricalPlayerName(raw) ? raw.playerName : enriched.playerName,
+            assistId: raw.assistId ?? enriched.assistId
+        )
+    }
+}
+
 struct MatchTeamLite: Codable, Identifiable {
     let id: String
     let side: String
@@ -922,6 +946,8 @@ struct MatchLite: Decodable, Identifiable {
         case played
         case teams
         case scorers
+        case scorersDetailed
+        case scorers_detailed
         case opponentName
         case opponent_name
         case startTime
@@ -952,7 +978,11 @@ struct MatchLite: Decodable, Identifiable {
         status = try? container.decodeIfPresent(String.self, forKey: .status)
         played = try? container.decodeIfPresent(Bool.self, forKey: .played)
         teams = (try? container.decode([MatchTeamLite].self, forKey: .teams)) ?? []
-        scorers = (try? container.decode([MatchScorer].self, forKey: .scorers)) ?? []
+        let rawScorers = (try? container.decode([MatchScorer].self, forKey: .scorers)) ?? []
+        let detailedScorers = (try? container.decode([MatchScorer].self, forKey: .scorersDetailed))
+            ?? (try? container.decode([MatchScorer].self, forKey: .scorers_detailed))
+            ?? []
+        scorers = mergeHistoricalScorers(primary: rawScorers, detailed: detailedScorers)
         opponentName = (try? container.decodeIfPresent(String.self, forKey: .opponentName))
             ?? (try? container.decodeIfPresent(String.self, forKey: .opponent_name))
         startTime = (try? container.decodeIfPresent(String.self, forKey: .startTime))
