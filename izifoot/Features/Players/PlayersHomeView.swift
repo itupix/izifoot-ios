@@ -372,6 +372,7 @@ final class TeamStatsViewModel: ObservableObject {
         var localGoalsFor = 0
         var localGoalsAgainst = 0
         var scorerTally: [String: Int] = [:]
+        var historicScorerNamesByID: [String: String] = [:]
 
         for match in playedMatches {
             let homeScore = match.teams.first(where: { $0.side == "home" })?.score ?? 0
@@ -389,6 +390,10 @@ final class TeamStatsViewModel: ObservableObject {
 
             for scorer in match.scorers where scorer.side == "home" {
                 scorerTally[scorer.playerId, default: 0] += 1
+                if let playerName = scorer.playerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !playerName.isEmpty {
+                    historicScorerNamesByID[scorer.playerId] = playerName
+                }
             }
         }
 
@@ -421,7 +426,11 @@ final class TeamStatsViewModel: ObservableObject {
 
         scorers = scorerTally
             .map { playerID, goals in
-                RankedStat(id: playerID, name: nameByID[playerID] ?? playerID, value: goals)
+                RankedStat(
+                    id: playerID,
+                    name: historicScorerNamesByID[playerID] ?? nameByID[playerID] ?? "Joueur inconnu",
+                    value: goals
+                )
             }
             .sorted {
                 if $0.value == $1.value {

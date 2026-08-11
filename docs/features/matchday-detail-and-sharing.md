@@ -70,6 +70,7 @@ Restrictions: API contract complexity.
 - Actions: create/update/delete matchday and matches, set absences, share.
 - Manual plateau matches support opponent rename from the quick score/scorer card and deletion behind an explicit confirmation.
 - Rotation/planning matches keep their regular score/composition workflow and do not expose those manual-only destructive/editing shortcuts.
+- Historical player names from matchday summary and match detail payloads are preferred over current roster data so past scorers stay readable after a transfer, with `Joueur inconnu` as the final fallback.
 - States: loading, editing, persisting, sheet-specific error.
 - Conditions: role/scope authorization.
 - Validations: payload normalization before updates.

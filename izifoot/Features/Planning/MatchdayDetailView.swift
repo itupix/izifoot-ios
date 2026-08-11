@@ -2520,7 +2520,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
                         name: summaryNames[playerID]
                             ?? detail.homePlayers.first(where: { $0.playerId == playerID })?.playerName
                             ?? playerNamesByID[playerID]
-                            ?? "Joueur"
+                            ?? "Joueur inconnu"
                     )
                 }
 
@@ -2686,7 +2686,7 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
     }
 
     func displayName(for playerID: String) -> String {
-        playerNamesByID[playerID] ?? eligiblePlayers.first(where: { $0.id == playerID })?.name ?? "Joueur"
+        playerNamesByID[playerID] ?? eligiblePlayers.first(where: { $0.id == playerID })?.name ?? "Joueur inconnu"
     }
 
     func shortDisplayName(for playerID: String) -> String {

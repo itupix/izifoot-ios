@@ -66,6 +66,7 @@ Restrictions: reliant on endpoint consistency.
 ## 7. Functional Behavior
 - UI behavior: summary cards and read-only public details.
 - Actions: read-only fetches.
+- Scorer leaderboards reuse historical scorer names from match payloads before current roster lookups and never show raw player IDs.
 - States: loading, ready, empty, error.
 - Conditions: stats requires authenticated privileged role.
 - Validations: token validity for public fetch.
