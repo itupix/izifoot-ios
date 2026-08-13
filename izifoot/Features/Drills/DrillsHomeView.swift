@@ -14,8 +14,10 @@ final class DrillsHomeViewModel: ObservableObject {
     private let pageSize = 50
     private var nextOffset = 0
     private var canLoadMore = true
+    private var isScopedToTeam = false
 
     private let api: IzifootAPI
+    private var lastCacheKey: String?
 
     init(api: IzifootAPI? = nil) {
         self.api = api ?? IzifootAPI()
@@ -30,29 +32,51 @@ final class DrillsHomeViewModel: ObservableObject {
     }
 
     var canLoadMoreDrills: Bool {
-        canLoadMore && !isLoading && !isLoadingMore
+        !isScopedToTeam && canLoadMore && !isLoading && !isLoadingMore
     }
 
-    func load(cacheKey: String, forceRefresh: Bool = false) async {
+    func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
+        if lastCacheKey != cacheKey {
+            lastCacheKey = cacheKey
+            drills = []
+            categories = []
+            tags = []
+            nextOffset = 0
+            canLoadMore = true
+            errorMessage = nil
+        }
+
+        let normalizedScopedTeamID = normalizedTeamID(teamID)
+        isScopedToTeam = normalizedScopedTeamID != nil
+
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(DrillsHomeCachePayload.self, forKey: cacheKey) {
-            drills = cached.drills
+            drills = filteredDrills(cached.drills, teamID: normalizedScopedTeamID)
             categories = cached.categories
             tags = cached.tags
             nextOffset = cached.nextOffset
-            canLoadMore = cached.canLoadMore
+            canLoadMore = cached.canLoadMore && normalizedScopedTeamID == nil
             hasCachedData = true
             errorMessage = nil
         }
 
         do {
-            let response = try await api.drills(limit: pageSize, offset: 0)
-            drills = response.items
-            categories = response.categories
-            tags = response.tags
-            nextOffset = response.pagination.offset + response.pagination.returned
-            canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            if let normalizedScopedTeamID {
+                let response = try await api.allDrills()
+                drills = filteredDrills(response.items, teamID: normalizedScopedTeamID)
+                categories = response.categories
+                tags = response.tags
+                nextOffset = 0
+                canLoadMore = false
+            } else {
+                let response = try await api.drills(limit: pageSize, offset: 0)
+                drills = response.items
+                categories = response.categories
+                tags = response.tags
+                nextOffset = response.pagination.offset + response.pagination.returned
+                canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            }
             await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
@@ -60,7 +84,8 @@ final class DrillsHomeViewModel: ObservableObject {
         }
     }
 
-    func loadMore(cacheKey: String) async {
+    func loadMore(cacheKey: String, teamID: String? = nil) async {
+        guard normalizedTeamID(teamID) == nil else { return }
         guard canLoadMoreDrills else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
@@ -86,6 +111,7 @@ final class DrillsHomeViewModel: ObservableObject {
         players: String,
         description: String,
         tags: [String],
+        teamID: String? = nil,
         cacheKey: String
     ) async {
         do {
@@ -97,32 +123,73 @@ final class DrillsHomeViewModel: ObservableObject {
                 description: description,
                 tags: tags
             )
-            drills.insert(created, at: 0)
+            if let normalizedScopedTeamID = normalizedTeamID(teamID) {
+                if drillBelongsToScope(created, teamID: normalizedScopedTeamID) {
+                    drills.insert(created, at: 0)
+                    drills = filteredDrills(drills, teamID: normalizedScopedTeamID)
+                } else {
+                    await load(cacheKey: cacheKey, teamID: normalizedScopedTeamID, forceRefresh: true)
+                    return
+                }
+            } else {
+                drills.insert(created, at: 0)
+            }
             await persistCache(forKey: cacheKey)
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
     }
 
-    func deleteDrill(id: String, cacheKey: String) async {
+    func deleteDrill(id: String, teamID: String? = nil, cacheKey: String) async {
         guard deletingDrillID == nil else { return }
         deletingDrillID = id
         defer { deletingDrillID = nil }
 
         do {
             try await api.deleteDrill(id: id)
-            let reloadLimit = max(nextOffset, pageSize)
-            let response = try await api.drills(limit: reloadLimit, offset: 0)
-            drills = response.items
-            categories = response.categories
-            tags = response.tags
-            nextOffset = response.pagination.offset + response.pagination.returned
-            canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            if let normalizedScopedTeamID = normalizedTeamID(teamID) {
+                let response = try await api.allDrills()
+                drills = filteredDrills(response.items, teamID: normalizedScopedTeamID)
+                categories = response.categories
+                tags = response.tags
+                nextOffset = 0
+                canLoadMore = false
+            } else {
+                let reloadLimit = max(nextOffset, pageSize)
+                let response = try await api.drills(limit: reloadLimit, offset: 0)
+                drills = response.items
+                categories = response.categories
+                tags = response.tags
+                nextOffset = response.pagination.offset + response.pagination.returned
+                canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            }
             await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func filteredDrills(_ drills: [Drill], teamID: String?) -> [Drill] {
+        guard let teamID else { return drills }
+        return drills.filter { drill in
+            drillBelongsToScope(drill, teamID: teamID)
+        }
+    }
+
+    private func drillBelongsToScope(_ drill: Drill, teamID: String) -> Bool {
+        guard let drillTeamID = normalizedTeamID(drill.teamId) else {
+            return true
+        }
+        return drillTeamID == teamID
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return nil
+        }
+        return teamID
     }
 
     private func persistCache(forKey cacheKey: String) async {
@@ -146,7 +213,13 @@ struct DrillsHomeView: View {
     @State private var isSheetPresented = false
     @State private var searchText = ""
     @State private var drillToDelete: Drill?
-    private var dataCacheKey: String { "drills-home-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String {
+        "drills-home-\(authStore.me?.id ?? "anonymous")-\(teamScopeStore.selectedTeamID ?? "all")"
+    }
+
+    private var taskReloadKey: String {
+        "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -194,7 +267,12 @@ struct DrillsHomeView: View {
 
                     if viewModel.canLoadMoreDrills {
                         Button {
-                            Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
+                            Task {
+                                await viewModel.loadMore(
+                                    cacheKey: dataCacheKey,
+                                    teamID: teamScopeStore.selectedTeamID
+                                )
+                            }
                         } label: {
                             HStack {
                                 Spacer()
@@ -228,10 +306,14 @@ struct DrillsHomeView: View {
             }
             .searchable(text: $searchText, prompt: "Rechercher un exercice")
             .refreshable {
-                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                await viewModel.load(
+                    cacheKey: dataCacheKey,
+                    teamID: teamScopeStore.selectedTeamID,
+                    forceRefresh: true
+                )
             }
-            .task {
-                await viewModel.load(cacheKey: dataCacheKey)
+            .task(id: taskReloadKey) {
+                await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID)
             }
             .sheet(isPresented: $isSheetPresented) {
                 CreateDrillSheet(defaultCategories: viewModel.categories, defaultTags: viewModel.tags) { payload in
@@ -242,6 +324,7 @@ struct DrillsHomeView: View {
                         players: payload.players,
                         description: payload.description,
                         tags: payload.tags,
+                        teamID: teamScopeStore.selectedTeamID,
                         cacheKey: dataCacheKey
                     )
                     isSheetPresented = false
@@ -259,7 +342,11 @@ struct DrillsHomeView: View {
                 Button("Supprimer l'exercice", role: .destructive) {
                     guard let drill = drillToDelete else { return }
                     Task {
-                        await viewModel.deleteDrill(id: drill.id, cacheKey: dataCacheKey)
+                        await viewModel.deleteDrill(
+                            id: drill.id,
+                            teamID: teamScopeStore.selectedTeamID,
+                            cacheKey: dataCacheKey
+                        )
                         drillToDelete = nil
                     }
                 }

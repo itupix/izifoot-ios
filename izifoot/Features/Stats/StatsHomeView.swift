@@ -15,6 +15,7 @@ final class StatsHomeViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
+    private var lastCacheKey: String?
 
     init(api: IzifootAPI = IzifootAPI()) {
         self.api = api
@@ -31,7 +32,25 @@ final class StatsHomeViewModel: ObservableObject {
         let seasonRangeLabel: String
     }
 
-    func load(cacheKey: String, forceRefresh: Bool = false, refreshSeasonCatalog: Bool = false) async {
+    func load(
+        cacheKey: String,
+        selectedTeamID: String? = nil,
+        forceRefresh: Bool = false,
+        refreshSeasonCatalog: Bool = false
+    ) async {
+        if lastCacheKey != cacheKey {
+            lastCacheKey = cacheKey
+            playersCount = 0
+            trainingsCount = 0
+            matchdaysCount = 0
+            drillsCount = 0
+            seasons = []
+            selectedSeasonID = ""
+            seasonLabel = ""
+            seasonRangeLabel = ""
+            errorMessage = nil
+        }
+
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(StatsHomeCachePayload.self, forKey: cacheKey) {
@@ -48,6 +67,7 @@ final class StatsHomeViewModel: ObservableObject {
         }
 
         do {
+            let normalizedScopedTeamID = normalizedTeamID(selectedTeamID)
             if refreshSeasonCatalog || seasons.isEmpty {
                 let club = try await api.myClub()
                 do {
@@ -75,10 +95,31 @@ final class StatsHomeViewModel: ObservableObject {
             async let matchdays = api.allMatchdays(seasonID: effectiveSeasonID)
             async let drills = api.allDrills()
 
-            playersCount = try await players.count
-            trainingsCount = try await trainings.count
-            matchdaysCount = try await matchdays.count
-            drillsCount = try await drills.items.count
+            let loadedPlayers = try await players
+            let loadedTrainings = try await trainings
+            let loadedMatchdays = try await matchdays
+            let loadedDrills = try await drills
+
+            playersCount = Self.filterByScope(
+                loadedPlayers,
+                teamID: \.teamId,
+                selectedTeamID: normalizedScopedTeamID
+            ).count
+            trainingsCount = Self.filterByScope(
+                loadedTrainings,
+                teamID: \.teamId,
+                selectedTeamID: normalizedScopedTeamID
+            ).count
+            matchdaysCount = Self.filterByScope(
+                loadedMatchdays,
+                teamID: \.teamId,
+                selectedTeamID: normalizedScopedTeamID
+            ).count
+            drillsCount = Self.filterByScope(
+                loadedDrills.items,
+                teamID: \.teamId,
+                selectedTeamID: normalizedScopedTeamID
+            ).count
             seasonLabel = selectedSeason?.label ?? ""
             seasonRangeLabel = selectedSeason.map { SeasonSupport.rangeLabel(for: $0) } ?? ""
             await PersistentDataCache.shared.write(
@@ -110,12 +151,42 @@ final class StatsHomeViewModel: ObservableObject {
             lhs.startDate > rhs.startDate
         }
     }
+
+    private static func filterByScope<Item>(
+        _ items: [Item],
+        teamID: KeyPath<Item, String?>,
+        selectedTeamID: String?
+    ) -> [Item] {
+        guard let selectedTeamID else { return items }
+        return items.filter { item in
+            guard let currentTeamID = item[keyPath: teamID]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !currentTeamID.isEmpty else {
+                return true
+            }
+            return currentTeamID == selectedTeamID
+        }
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return nil
+        }
+        return teamID
+    }
 }
 
 struct StatsHomeView: View {
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = StatsHomeViewModel()
-    private var dataCacheKey: String { "stats-home-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String {
+        "stats-home-\(authStore.me?.id ?? "anonymous")-\(teamScopeStore.selectedTeamID ?? "all")"
+    }
+
+    private var taskReloadKey: String {
+        "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -154,16 +225,29 @@ struct StatsHomeView: View {
             .navigationTitle("Stats")
             .navigationBarTitleDisplayMode(.large)
             .appChrome()
-            .task {
-                await viewModel.load(cacheKey: dataCacheKey, refreshSeasonCatalog: true)
+            .task(id: taskReloadKey) {
+                await viewModel.load(
+                    cacheKey: dataCacheKey,
+                    selectedTeamID: teamScopeStore.selectedTeamID,
+                    refreshSeasonCatalog: true
+                )
             }
             .onChange(of: viewModel.selectedSeasonID) { _ in
                 Task {
-                    await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                    await viewModel.load(
+                        cacheKey: dataCacheKey,
+                        selectedTeamID: teamScopeStore.selectedTeamID,
+                        forceRefresh: true
+                    )
                 }
             }
             .refreshable {
-                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true, refreshSeasonCatalog: true)
+                await viewModel.load(
+                    cacheKey: dataCacheKey,
+                    selectedTeamID: teamScopeStore.selectedTeamID,
+                    forceRefresh: true,
+                    refreshSeasonCatalog: true
+                )
             }
             .alert("Erreur", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },

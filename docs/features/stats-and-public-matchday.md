@@ -66,7 +66,7 @@ Restrictions: reliant on endpoint consistency.
 ## 7. Functional Behavior
 - UI behavior: summary cards and read-only public details.
 - Actions: read-only fetches.
-- Scorer leaderboards reuse historical scorer names from match payloads before current roster lookups and never show raw player IDs.
+- Internal stats must reload on active team changes coming from the shell picker.
 - States: loading, ready, empty, error.
 - Conditions: stats requires authenticated privileged role.
 - Validations: token validity for public fetch.
@@ -87,6 +87,7 @@ Constraints: sanitized fields.
 
 ## 9. Business Rules
 - Stats are derived client-side from current scoped datasets.
+- Stats cache is segmented by active team scope to avoid showing another team context after a picker change.
 - Public view is strictly read-only and token-gated.
 
 ## 10. State Machine
@@ -148,9 +149,10 @@ Constraints: sanitized fields.
 
 ## 20. Acceptance Criteria
 1. Direction/coach can view stats without app errors.
-2. Public token loads read-only matchday.
-3. Invalid token shows deterministic error.
-4. Empty datasets are handled gracefully.
+2. Changing the active team in the shell picker reloads stats on the new scope.
+3. Public token loads read-only matchday.
+4. Invalid token shows deterministic error.
+5. Empty datasets are handled gracefully.
 
 ## 21. Test Scenarios
 - Happy path: stats load with populated datasets.

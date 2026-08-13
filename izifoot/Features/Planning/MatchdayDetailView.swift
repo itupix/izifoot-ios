@@ -738,6 +738,7 @@ struct MatchdayDetailView: View {
                 matches: orderedMatchesForPager,
                 clubName: viewModel.clubName,
                 matchdayDate: viewModel.matchday.date,
+                sharedPlayers: scopedPlayers,
                 playerNamesByID: playerNamesByID,
                 matchProvider: { matchID in
                     viewModel.matches.first(where: { $0.id == matchID })
@@ -808,6 +809,20 @@ struct MatchdayDetailView: View {
         return (role == .direction || role == .coach) && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
     }
 
+    private var scopedTeamID: String? {
+        let selectedTeamID = teamScopeStore.selectedTeamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let selectedTeamID, !selectedTeamID.isEmpty {
+            return selectedTeamID
+        }
+
+        let matchdayTeamID = viewModel.matchday.teamId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let matchdayTeamID, !matchdayTeamID.isEmpty {
+            return matchdayTeamID
+        }
+
+        return nil
+    }
+
     private var matchdayTeamFormat: String? {
         guard let matchdayTeamID = viewModel.matchday.teamId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !matchdayTeamID.isEmpty else {
@@ -848,16 +863,26 @@ struct MatchdayDetailView: View {
         }
     }
 
-    private var filteredPlayers: [Player] {
-        guard let role = authStore.me?.role, role == .coach else {
-            return viewModel.players
+    private var scopedPlayers: [Player] {
+        let basePlayers: [Player]
+        if let scopedTeamID {
+            basePlayers = viewModel.players.filter { $0.teamId == nil || $0.teamId == scopedTeamID }
+        } else {
+            basePlayers = viewModel.players
         }
 
+        guard let role = authStore.me?.role, role == .coach else {
+            return basePlayers
+        }
         let managed = Set(authStore.me?.managedTeamIds ?? [])
-        return viewModel.players.filter { player in
+        return basePlayers.filter { player in
             guard let teamID = player.teamId else { return true }
             return managed.contains(teamID)
         }
+    }
+
+    private var filteredPlayers: [Player] {
+        scopedPlayers.filter(\.isActive)
     }
 
     private var attendanceByPlayerID: [String: Bool] {
@@ -869,7 +894,7 @@ struct MatchdayDetailView: View {
     }
 
     private var playerNamesByID: [String: String] {
-        Dictionary(uniqueKeysWithValues: viewModel.players.map { ($0.id, $0.name) })
+        Dictionary(uniqueKeysWithValues: scopedPlayers.map { ($0.id, $0.name) })
     }
 
     private var orderedMatchesForPager: [MatchLite] {
@@ -2131,6 +2156,7 @@ private struct MatchdayMatchesPagerSheet: View {
     let matches: [MatchLite]
     let clubName: String?
     let matchdayDate: String
+    let sharedPlayers: [Player]
     let playerNamesByID: [String: String]
     let matchProvider: (String) -> MatchLite?
     let onDeleteManualMatch: (String) async -> Bool
@@ -2143,6 +2169,7 @@ private struct MatchdayMatchesPagerSheet: View {
         matches: [MatchLite],
         clubName: String?,
         matchdayDate: String,
+        sharedPlayers: [Player],
         playerNamesByID: [String: String],
         matchProvider: @escaping (String) -> MatchLite?,
         onDeleteManualMatch: @escaping (String) async -> Bool
@@ -2151,6 +2178,7 @@ private struct MatchdayMatchesPagerSheet: View {
         self.matches = matches
         self.clubName = clubName
         self.matchdayDate = matchdayDate
+        self.sharedPlayers = sharedPlayers
         self.playerNamesByID = playerNamesByID
         self.matchProvider = matchProvider
         self.onDeleteManualMatch = onDeleteManualMatch
@@ -2158,7 +2186,8 @@ private struct MatchdayMatchesPagerSheet: View {
         _sheetViewModel = StateObject(
             wrappedValue: MatchdayMatchesSheetViewModel(
                 matches: matches,
-                fallbackPlayerNamesByID: playerNamesByID
+                fallbackPlayerNamesByID: playerNamesByID,
+                sharedPlayers: sharedPlayers
             )
         )
     }
@@ -2368,13 +2397,15 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
 
     private let matches: [MatchLite]
     private let fallbackPlayerNamesByID: [String: String]
+    private let sharedPlayers: [Player]
     private let api: IzifootAPI
     private var viewModelsByID: [String: MatchdayMatchDetailViewModel] = [:]
     private var hasLoaded = false
 
-    init(matches: [MatchLite], fallbackPlayerNamesByID: [String: String], api: IzifootAPI? = nil) {
+    init(matches: [MatchLite], fallbackPlayerNamesByID: [String: String], sharedPlayers: [Player], api: IzifootAPI? = nil) {
         self.matches = matches
         self.fallbackPlayerNamesByID = fallbackPlayerNamesByID
+        self.sharedPlayers = sharedPlayers
         self.api = api ?? IzifootAPI()
     }
 
@@ -2397,7 +2428,6 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
         hasLoaded = true
 
         let matchdayID = matches.compactMap(\.matchdayId).first
-        async let playersTask = api.allPlayers()
         async let summaryTask: MatchdaySummary? = {
             guard let matchdayID else { return nil }
             return try? await api.matchdaySummary(id: matchdayID, includeAllPlayers: true)
@@ -2407,13 +2437,12 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
             return try? await api.allAttendanceBySession(type: "PLATEAU", sessionID: matchdayID)
         }()
 
-        let players = (try? await playersTask) ?? []
         let summary = await summaryTask
         let attendance = await attendanceTask
 
         for match in matches {
             let viewModel = viewModel(for: match.id)
-            await viewModel.load(sharedPlayers: players, summary: summary, attendance: attendance)
+            await viewModel.load(sharedPlayers: sharedPlayers, summary: summary, attendance: attendance)
         }
     }
 
@@ -2762,6 +2791,8 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         matchDetail = MatchDetail(
             id: detail.id,
             type: detail.type,
+            teamId: detail.teamId,
+            teamFormat: detail.teamFormat,
             matchdayId: detail.matchdayId,
             opponentName: opponentName,
             played: hasResultChange ? true : detail.played,
@@ -2770,8 +2801,6 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             teams: updatedTeams,
             scorers: updatedHomeScorers + detail.scorers.filter { $0.side != "home" },
             tactic: detail.tactic,
-            teamId: detail.teamId,
-            teamFormat: detail.teamFormat,
             startTime: detail.startTime,
             terrain: detail.terrain,
             field: detail.field
@@ -2799,6 +2828,8 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         MatchDetail(
             id: match.id,
             type: match.type,
+            teamId: match.teamId,
+            teamFormat: match.teamFormat,
             matchdayId: match.matchdayId,
             opponentName: match.opponentName,
             played: match.played,
@@ -2809,8 +2840,6 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             },
             scorers: match.scorers,
             tactic: nil,
-            teamId: match.teamId,
-            teamFormat: match.teamFormat,
             startTime: match.startTime,
             terrain: match.terrain,
             field: match.field

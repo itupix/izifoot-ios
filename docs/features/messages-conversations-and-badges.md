@@ -67,6 +67,7 @@ Restrictions: depends on message read state and API.
 ## 7. Functional Behavior
 - UI behavior: list of conversations with metadata and thread history.
 - Actions: fetch conversations/messages and post new message.
+- The conversations list must reload when the active team changes from the global picker.
 - States: loading, loaded, sending, error.
 - Conditions: authenticated and scoped context.
 - Validations: non-empty message content before send.
@@ -88,6 +89,7 @@ Constraints: role/team scoped.
 
 ## 9. Business Rules
 - Conversation list may be filtered by active team context.
+- The cached conversations list is segmented by active team scope to avoid showing another team's threads after a picker change.
 - Coach conversations with invitation status `NONE` are expected in `/messages/conversations`, but must render disabled.
 - If a stale coach thread still opens and returns `403`, the thread uses `playerId` plus the existing player invite endpoint to recover the flow.
 - Read/sent actions should influence unread badge state.
@@ -159,12 +161,13 @@ Constraints: role/team scoped.
 ## 20. Acceptance Criteria
 1. User can load conversations and thread history.
 2. Coach conversations with `invitationStatus: NONE` stay visible but disabled in the list.
-3. User can send messages in allowed threads.
-4. Pending coach conversations display `Invitation en attente` in the list.
-5. Unread badge updates after reads/sends and ignores disabled coach conversations.
-6. A stale direct coach thread that becomes unavailable hides the composer and shows invitation recovery actions in place of the composer.
-7. If a user first refuses notifications and later enables them in iOS Settings, the app re-synchronizes the push token state and notifications can resume without reconnecting the account.
-8. When a `MESSAGE` push arrives, the `Messages` tab badge becomes visible from refreshed unread state, and the app icon badge remains visible until unread messages are cleared.
+3. Changing the active team in the shell picker reloads the conversations list on the new scope.
+4. User can send messages in allowed threads.
+5. Pending coach conversations display `Invitation en attente` in the list.
+6. Unread badge updates after reads/sends and ignores disabled coach conversations.
+7. A stale direct coach thread that becomes unavailable hides the composer and shows invitation recovery actions in place of the composer.
+8. If a user first refuses notifications and later enables them in iOS Settings, the app re-synchronizes the push token state and notifications can resume without reconnecting the account.
+9. When a `MESSAGE` push arrives, the `Messages` tab badge becomes visible from refreshed unread state, and the app icon badge remains visible until unread messages are cleared.
 
 ## 21. Test Scenarios
 - Happy path: send message in a coach conversation.

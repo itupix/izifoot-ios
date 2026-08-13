@@ -10,6 +10,7 @@ enum APIRoutes {
     }
 
     static let me = "/me"
+    static let meTeam = "/me/team"
     static let meProfile = "/me/profile"
     static let mePassword = "/me/password"
     static let meChild = "/me/child"

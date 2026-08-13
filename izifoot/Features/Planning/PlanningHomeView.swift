@@ -11,6 +11,7 @@ final class PlanningHomeViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
+    private var lastCacheKey: String?
 
     init(api: IzifootAPI? = nil) {
         self.api = api ?? IzifootAPI()
@@ -24,6 +25,15 @@ final class PlanningHomeViewModel: ObservableObject {
     }
 
     func load(cacheKey: String, forceRefresh: Bool = false) async {
+        if lastCacheKey != cacheKey {
+            lastCacheKey = cacheKey
+            club = nil
+            seasons = []
+            trainings = []
+            matchdays = []
+            errorMessage = nil
+        }
+
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(PlanningHomeCachePayload.self, forKey: cacheKey) {
@@ -178,7 +188,10 @@ struct PlanningHomeView: View {
     @AppStorage("izifoot.planning.lastDateSavedOnDay") private var storedPlanningDateSavedOnDay = ""
 
     @StateObject private var viewModel = PlanningHomeViewModel()
-    @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(storedValue: nil, storedOnDay: nil)
+    @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(
+        storedValue: nil,
+        storedOnDay: nil
+    )
     @State private var isDatePickerPresented = false
     @State private var isTrainingCreationConfirmationPresented = false
     @State private var isCompetitionSheetPresented = false
@@ -187,7 +200,13 @@ struct PlanningHomeView: View {
     @State private var competitionType: CompetitionType = .plateau
     @State private var competitionMatchVenue: MatchVenueChoice?
     @State private var updatingTrainingIntentIDs: Set<String> = []
-    private var dataCacheKey: String { "planning-home-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String {
+        "planning-home-\(authStore.me?.id ?? "anonymous")-\(teamScopeStore.selectedTeamID ?? "all")"
+    }
+
+    private var taskReloadKey: String {
+        "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -307,7 +326,7 @@ struct PlanningHomeView: View {
             .refreshable {
                 await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
             }
-            .task {
+            .task(id: taskReloadKey) {
                 revalidateSelectedDate()
                 await viewModel.load(cacheKey: dataCacheKey)
             }
@@ -629,7 +648,9 @@ private enum PlanningDateHelpers {
     static func defaultSelectedDate(storedValue: String?, storedOnDay: String?) -> Date {
         guard storedOnDay == storageKey(for: today),
               let storedValue,
-              let parsed = parseStorageKey(storedValue) else { return today }
+              let parsed = parseStorageKey(storedValue) else {
+            return today
+        }
         return parsed
     }
 

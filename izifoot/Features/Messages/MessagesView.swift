@@ -93,6 +93,7 @@ final class MessagesListViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
+    private var lastCacheKey: String?
 
     init(api: IzifootAPI = IzifootAPI()) {
         self.api = api
@@ -130,6 +131,12 @@ final class MessagesListViewModel: ObservableObject {
     }
 
     func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
+        if lastCacheKey != cacheKey {
+            lastCacheKey = cacheKey
+            conversations = []
+            errorMessage = nil
+        }
+
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(MessagesListCachePayload.self, forKey: cacheKey) {
@@ -249,9 +256,16 @@ final class ConversationThreadViewModel: ObservableObject {
 
 struct MessagesView: View {
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = MessagesListViewModel()
     @StateObject private var unreadStore = ConversationUnreadStore()
-    private var dataCacheKey: String { "messages-home-v3-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String {
+        "messages-home-v3-\(authStore.me?.id ?? "anonymous")-\(teamScopeStore.selectedTeamID ?? "all")"
+    }
+
+    private var taskReloadKey: String {
+        "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
+    }
 
     var body: some View {
         NavigationStack {
@@ -305,9 +319,9 @@ struct MessagesView: View {
             .navigationTitle("Messages")
             .navigationBarTitleDisplayMode(.large)
             .appChrome()
-            .task {
+            .task(id: taskReloadKey) {
                 unreadStore.setCurrentUserID(authStore.me?.id)
-                await viewModel.load(cacheKey: dataCacheKey)
+                await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID)
                 publishUnreadCount()
             }
             .onChange(of: authStore.me?.id) { newValue in
@@ -315,12 +329,20 @@ struct MessagesView: View {
                 publishUnreadCount()
             }
             .refreshable {
-                await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                await viewModel.load(
+                    cacheKey: dataCacheKey,
+                    teamID: teamScopeStore.selectedTeamID,
+                    forceRefresh: true
+                )
                 publishUnreadCount()
             }
             .onReceive(NotificationCenter.default.publisher(for: .messagesRefreshRequested)) { _ in
                 Task {
-                    await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                    await viewModel.load(
+                        cacheKey: dataCacheKey,
+                        teamID: teamScopeStore.selectedTeamID,
+                        forceRefresh: true
+                    )
                     publishUnreadCount()
                 }
             }

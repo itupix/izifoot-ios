@@ -66,6 +66,7 @@ Restrictions: dependent on multi-endpoint calls.
 
 ## 7. Functional Behavior
 - UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, visible club/team context, conditional team reassignment when several writable teams exist, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
+- Global team-scope changes must reload the roster list, scoped stats, and local tactic workspace for the newly selected team.
 - Actions: CRUD plus adult invite operations and per-parent invite/resend actions for child accounts.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
@@ -86,6 +87,7 @@ Constraints: backend role/scope and field constraints.
 - Adult invite flow stays separate from quick-create and requires explicit profile completion on detail.
 - Player list is paginated.
 - Team reassignment stays limited to writable teams and shifts the active team scope to the newly assigned team after save.
+- Player list cache and tactic storage are segmented by active team to avoid cross-team bleed.
 
 ## 10. State Machine
 - Player states: created/updated/deleted.
@@ -150,9 +152,10 @@ Constraints: backend role/scope and field constraints.
 1. Admin/coach can quick-create a player with first name only on iOS.
 2. Admin/coach can see the player club and team on detail.
 3. Admin/coach can edit player identity, date of birth, licence, sport, contact fields, and team assignment from player detail when several writable teams exist.
-4. Adult invite, per-parent resend, and parent unlink actions function correctly.
-5. Unauthorized roles cannot access players tab.
-6. Failure states are visible without app crash.
+4. Changing the active team in the shell picker reloads effectif, tactic, and team stats on the new scope.
+5. Adult invite, per-parent resend, and parent unlink actions function correctly.
+6. Unauthorized roles cannot access players tab.
+7. Failure states are visible without app crash.
 
 ## 21. Test Scenarios
 - Happy path: quick-create player, inspect club/team, reassign team if needed, edit the player from detail including licence and date of birth, complete invite prerequisites, then send invite.

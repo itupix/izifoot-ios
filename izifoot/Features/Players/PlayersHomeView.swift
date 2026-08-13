@@ -11,8 +11,10 @@ final class PlayersHomeViewModel: ObservableObject {
     private let pageSize = 50
     private var nextOffset = 0
     private var canLoadMore = true
+    private var isScopedToTeam = false
 
     private let api: IzifootAPI
+    private var lastCacheKey: String?
 
     init(api: IzifootAPI? = nil) {
         self.api = api ?? IzifootAPI()
@@ -54,54 +56,78 @@ final class PlayersHomeViewModel: ObservableObject {
     }
 
     var canLoadMorePlayers: Bool {
-        canLoadMore && !isLoading && !isLoadingMore
+        !isScopedToTeam && canLoadMore && !isLoading && !isLoadingMore
     }
 
-    func load(cacheKey: String, forceRefresh: Bool = false) async {
+    func load(cacheKey: String, teamID: String? = nil, forceRefresh: Bool = false) async {
+        if lastCacheKey != cacheKey {
+            lastCacheKey = cacheKey
+            players = []
+            nextOffset = 0
+            canLoadMore = true
+            errorMessage = nil
+        }
+
+        let normalizedScopedTeamID = normalizedTeamID(teamID)
+        isScopedToTeam = normalizedScopedTeamID != nil
+
         var hasCachedData = false
         if !forceRefresh,
            let cached = await PersistentDataCache.shared.read(PlayersHomeCachePayload.self, forKey: cacheKey) {
-            players = cached.players.map { cached in
-                Player(
-                    id: cached.id,
-                    name: cached.name,
-                    firstName: cached.firstName,
-                    lastName: cached.lastName,
-                    primaryPosition: cached.primaryPosition,
-                    secondaryPosition: cached.secondaryPosition,
-                    licence: cached.licence,
-                    dateOfBirth: cached.dateOfBirth,
-                    email: cached.email,
-                    phone: cached.phone,
-                    isChild: cached.isChild,
-                    parentContacts: cached.parentContacts.map { contact in
-                        Player.ParentContact(
-                            parentId: contact.parentId,
-                            parentUserId: contact.parentUserId,
-                            firstName: contact.firstName,
-                            lastName: contact.lastName,
-                            email: contact.email,
-                            phone: contact.phone,
-                            status: contact.status
-                        )
-                    },
-                    teamId: cached.teamId,
-                    teamName: cached.teamName,
-                    isActive: cached.isActive,
-                    deactivatedAt: cached.deactivatedAt
-                )
-            }
+            players = filteredPlayers(
+                cached.players.map { cached in
+                    Player(
+                        id: cached.id,
+                        name: cached.name,
+                        firstName: cached.firstName,
+                        lastName: cached.lastName,
+                        primaryPosition: cached.primaryPosition,
+                        secondaryPosition: cached.secondaryPosition,
+                        licence: cached.licence,
+                        dateOfBirth: cached.dateOfBirth,
+                        email: cached.email,
+                        phone: cached.phone,
+                        isChild: cached.isChild,
+                        parentContacts: cached.parentContacts.map { contact in
+                            Player.ParentContact(
+                                parentId: contact.parentId,
+                                parentUserId: contact.parentUserId,
+                                firstName: contact.firstName,
+                                lastName: contact.lastName,
+                                email: contact.email,
+                                phone: contact.phone,
+                                status: contact.status
+                            )
+                        },
+                        teamId: cached.teamId,
+                        teamName: cached.teamName,
+                        isActive: cached.isActive,
+                        deactivatedAt: cached.deactivatedAt
+                    )
+                },
+                teamID: normalizedScopedTeamID
+            )
             nextOffset = cached.nextOffset
-            canLoadMore = cached.canLoadMore
+            canLoadMore = cached.canLoadMore && normalizedScopedTeamID == nil
             hasCachedData = true
             errorMessage = nil
         }
 
         do {
-            let response = try await api.players(limit: pageSize, offset: 0, rosterStatus: .all)
-            players = response.items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            nextOffset = response.pagination.offset + response.pagination.returned
-            canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            if let normalizedScopedTeamID {
+                let scopedPlayers = try await api.allPlayers(rosterStatus: .all)
+                players = filteredPlayers(
+                    scopedPlayers.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
+                    teamID: normalizedScopedTeamID
+                )
+                nextOffset = 0
+                canLoadMore = false
+            } else {
+                let response = try await api.players(limit: pageSize, offset: 0, rosterStatus: .all)
+                players = response.items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                nextOffset = response.pagination.offset + response.pagination.returned
+                canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
+            }
             await persistCache(forKey: cacheKey)
             errorMessage = nil
         } catch {
@@ -109,7 +135,8 @@ final class PlayersHomeViewModel: ObservableObject {
         }
     }
 
-    func loadMore(cacheKey: String) async {
+    func loadMore(cacheKey: String, teamID: String? = nil) async {
+        guard normalizedTeamID(teamID) == nil else { return }
         guard canLoadMorePlayers else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
@@ -125,6 +152,21 @@ final class PlayersHomeViewModel: ObservableObject {
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func filteredPlayers(_ players: [Player], teamID: String?) -> [Player] {
+        guard let teamID else { return players }
+        return players.filter { player in
+            normalizedTeamID(player.teamId) == teamID
+        }
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return nil
+        }
+        return teamID
     }
 
     func create(
@@ -240,11 +282,12 @@ final class TeamStatsViewModel: ObservableObject {
         self.api = api ?? IzifootAPI()
     }
 
-    func load(players: [Player], refreshSeasonCatalog: Bool = false) async {
+    func load(players: [Player], teamID: String? = nil, refreshSeasonCatalog: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
 
         do {
+            let normalizedScopedTeamID = normalizedTeamID(teamID)
             let shouldRefreshSeasonCatalog = refreshSeasonCatalog || seasons.isEmpty || loadedClub == nil
             let club: Club
             if shouldRefreshSeasonCatalog {
@@ -303,26 +346,43 @@ final class TeamStatsViewModel: ObservableObject {
                     for: selectedSeason,
                     config: club.seasonConfig
                 )
-                let filteredMatchdays = Self.filterMatchdays(
+                let seasonMatchdays = Self.filterMatchdays(
                     matchdays,
                     for: selectedSeason,
                     config: club.seasonConfig
                 )
-                let filteredMatches = Self.filterMatches(
+                let seasonMatches = Self.filterMatches(
                     matches,
                     for: selectedSeason,
                     config: club.seasonConfig
                 )
-                let filteredAttendance = Self.filterAttendance(
+                let scopedTrainings = Self.filterByScope(
+                    filteredTrainings,
+                    teamID: \.teamId,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedMatchdays = Self.filterByScope(
+                    seasonMatchdays,
+                    teamID: \.teamId,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedMatches = Self.filterMatches(
+                    seasonMatches,
+                    matchdays: scopedMatchdays,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedAttendance = Self.filterAttendance(
                     attendance,
-                    trainings: filteredTrainings,
-                    matchdays: filteredMatchdays
+                    playerIDs: Set(players.map(\.id)),
+                    trainings: scopedTrainings,
+                    matchdays: scopedMatchdays,
+                    matches: scopedMatches
                 )
 
                 applyStats(
-                    matches: filteredMatches,
-                    attendance: filteredAttendance,
-                    matchdays: filteredMatchdays,
+                    matches: scopedMatches,
+                    attendance: scopedAttendance,
+                    matchdays: scopedMatchdays,
                     players: players
                 )
             } else {
@@ -338,15 +398,40 @@ final class TeamStatsViewModel: ObservableObject {
                 async let matchesTask = api.allMatches(seasonID: effectiveSeasonID)
                 async let attendanceTask = api.allAttendance(seasonID: effectiveSeasonID)
                 async let matchdaysTask = api.allMatchdays(seasonID: effectiveSeasonID)
+                async let trainingsTask = api.allTrainings(seasonID: effectiveSeasonID)
 
                 let matches = try await matchesTask
                 let attendance = try await attendanceTask
                 let matchdays = try await matchdaysTask
+                let trainings = try await trainingsTask
+
+                let scopedTrainings = Self.filterByScope(
+                    trainings,
+                    teamID: \.teamId,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedMatchdays = Self.filterByScope(
+                    matchdays,
+                    teamID: \.teamId,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedMatches = Self.filterMatches(
+                    matches,
+                    matchdays: scopedMatchdays,
+                    selectedTeamID: normalizedScopedTeamID
+                )
+                let scopedAttendance = Self.filterAttendance(
+                    attendance,
+                    playerIDs: Set(players.map(\.id)),
+                    trainings: scopedTrainings,
+                    matchdays: scopedMatchdays,
+                    matches: scopedMatches
+                )
 
                 applyStats(
-                    matches: matches,
-                    attendance: attendance,
-                    matchdays: matchdays,
+                    matches: scopedMatches,
+                    attendance: scopedAttendance,
+                    matchdays: scopedMatchdays,
                     players: players
                 )
             }
@@ -485,6 +570,72 @@ final class TeamStatsViewModel: ObservableObject {
         return merged.sorted { lhs, rhs in
             lhs.startDate > rhs.startDate
         }
+    }
+
+    private static func filterByScope<Item>(
+        _ items: [Item],
+        teamID: KeyPath<Item, String?>,
+        selectedTeamID: String?
+    ) -> [Item] {
+        guard let selectedTeamID else { return items }
+        return items.filter { item in
+            guard let currentTeamID = item[keyPath: teamID]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !currentTeamID.isEmpty else {
+                return true
+            }
+            return currentTeamID == selectedTeamID
+        }
+    }
+
+    private static func filterMatches(
+        _ matches: [MatchLite],
+        matchdays: [Matchday],
+        selectedTeamID: String?
+    ) -> [MatchLite] {
+        guard selectedTeamID != nil else { return matches }
+        let allowedMatchdayIDs = Set(matchdays.map(\.id))
+        return matches.filter { match in
+            guard let matchdayID = match.matchdayId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !matchdayID.isEmpty else {
+                return true
+            }
+            return allowedMatchdayIDs.contains(matchdayID)
+        }
+    }
+
+    private static func filterAttendance(
+        _ attendance: [AttendanceRow],
+        playerIDs: Set<String>,
+        trainings: [Training],
+        matchdays: [Matchday],
+        matches: [MatchLite]
+    ) -> [AttendanceRow] {
+        let trainingIDs = Set(trainings.map(\.id))
+        let matchdayIDs = Set(matchdays.map(\.id))
+        let matchIDs = Set(matches.map(\.id))
+
+        return attendance.filter { row in
+            guard playerIDs.contains(row.playerId) else { return false }
+
+            switch row.sessionType.uppercased() {
+            case "TRAINING":
+                return trainingIDs.contains(row.sessionId)
+            case "PLATEAU", "MATCHDAY":
+                return matchdayIDs.contains(row.sessionId)
+            case "MATCH":
+                return matchIDs.contains(row.sessionId)
+            default:
+                return true
+            }
+        }
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return nil
+        }
+        return teamID
     }
 
     private static func fallbackSeasons(
@@ -707,12 +858,41 @@ private enum TeamTab: String, CaseIterable, Identifiable {
 
 struct PlayersHomeView: View {
     @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = PlayersHomeViewModel()
     @StateObject private var statsViewModel = TeamStatsViewModel()
     @State private var query = ""
     @State private var isCreateSheetPresented = false
     @State private var selectedTab: TeamTab = .players
-    private var dataCacheKey: String { "players-home-\(authStore.me?.id ?? "anonymous")" }
+    private var dataCacheKey: String {
+        "players-home-\(authStore.me?.id ?? "anonymous")-\(teamScopeStore.selectedTeamID ?? "all")"
+    }
+
+    private var taskReloadKey: String {
+        "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
+    }
+
+    private var tacticScopeKey: String {
+        teamScopeStore.selectedTeamID ?? "all"
+    }
+
+    private var selectedTeamFormat: String? {
+        guard let selectedTeamID = teamScopeStore.selectedTeamID else { return nil }
+        return teamScopeStore.teams.first(where: { $0.id == selectedTeamID })?.format
+    }
+
+    private var tacticPlayersOnField: Int {
+        switch selectedTeamFormat?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "3v3":
+            return 3
+        case "8v8":
+            return 8
+        case "11v11":
+            return 11
+        default:
+            return 5
+        }
+    }
 
     private var searchedPlayers: [Player] {
         guard !query.isEmpty else { return viewModel.players }
@@ -786,8 +966,15 @@ struct PlayersHomeView: View {
                     .accessibilityLabel("Ajouter un joueur")
                 }
             }
-            .task {
-                await viewModel.load(cacheKey: dataCacheKey)
+            .task(id: taskReloadKey) {
+                await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID)
+                if selectedTab == .stats {
+                    await statsViewModel.load(
+                        players: viewModel.players,
+                        teamID: teamScopeStore.selectedTeamID,
+                        refreshSeasonCatalog: true
+                    )
+                }
             }
             .sheet(isPresented: $isCreateSheetPresented) {
                 CreatePlayerSheet { payload in
@@ -821,20 +1008,28 @@ struct PlayersHomeView: View {
             .onChange(of: selectedTab) { newValue in
                 guard newValue == .stats else { return }
                 Task {
-                    await statsViewModel.load(players: viewModel.players, refreshSeasonCatalog: true)
+                    await statsViewModel.load(
+                        players: viewModel.players,
+                        teamID: teamScopeStore.selectedTeamID,
+                        refreshSeasonCatalog: true
+                    )
                 }
             }
             .onChange(of: statsViewModel.selectedSeasonID) { _ in
                 guard selectedTab == .stats else { return }
                 Task {
-                    await statsViewModel.load(players: viewModel.players)
+                    await statsViewModel.load(players: viewModel.players, teamID: teamScopeStore.selectedTeamID)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .playerDidUpdate)) { _ in
                 Task {
-                    await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+                    await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID, forceRefresh: true)
                     if selectedTab == .stats {
-                        await statsViewModel.load(players: viewModel.players, refreshSeasonCatalog: true)
+                        await statsViewModel.load(
+                            players: viewModel.players,
+                            teamID: teamScopeStore.selectedTeamID,
+                            refreshSeasonCatalog: true
+                        )
                     }
                 }
             }
@@ -871,9 +1066,9 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+            await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID, forceRefresh: true)
             if selectedTab == .stats {
-                await statsViewModel.load(players: viewModel.players)
+                await statsViewModel.load(players: viewModel.players, teamID: teamScopeStore.selectedTeamID)
             }
         }
     }
@@ -895,9 +1090,9 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+            await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID, forceRefresh: true)
             if selectedTab == .stats {
-                await statsViewModel.load(players: viewModel.players)
+                await statsViewModel.load(players: viewModel.players, teamID: teamScopeStore.selectedTeamID)
             }
         }
     }
@@ -919,9 +1114,9 @@ struct PlayersHomeView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await viewModel.load(cacheKey: dataCacheKey, forceRefresh: true)
+            await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID, forceRefresh: true)
             if selectedTab == .stats {
-                await statsViewModel.load(players: viewModel.players)
+                await statsViewModel.load(players: viewModel.players, teamID: teamScopeStore.selectedTeamID)
             }
         }
     }
@@ -951,7 +1146,7 @@ struct PlayersHomeView: View {
 
                     if query.isEmpty && viewModel.canLoadMorePlayers {
                         Button {
-                            Task { await viewModel.loadMore(cacheKey: dataCacheKey) }
+                            Task { await viewModel.loadMore(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID) }
                         } label: {
                             HStack {
                                 Spacer()
@@ -986,7 +1181,7 @@ struct PlayersHomeView: View {
 
     private var tacticSection: some View {
         Section("Tactique") {
-            TeamTacticCard()
+            TeamTacticCard(scopeKey: tacticScopeKey, playersOnField: tacticPlayersOnField)
                 .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 .listRowBackground(Color.clear)
         }
@@ -1018,6 +1213,14 @@ private struct SavedTactic: Codable, Identifiable, Equatable {
 }
 
 private struct TeamTacticCard: View {
+    private struct FormationTemplate: Identifiable {
+        let key: String
+        let label: String
+        let lines: [Int]
+
+        var id: String { key }
+    }
+
     private enum SaveMode: String, CaseIterable, Identifiable {
         case overwrite = "Écraser l'actuelle"
         case createNew = "Créer une nouvelle"
@@ -1025,10 +1228,10 @@ private struct TeamTacticCard: View {
         var id: String { rawValue }
     }
 
-    @AppStorage("izifoot.team.tactics.json") private var tacticsJSON = ""
-    @AppStorage("izifoot.team.tactics.selected") private var selectedTacticID = ""
-
+    let scopeKey: String
+    let playersOnField: Int
     @State private var tactics: [SavedTactic] = []
+    @State private var selectedTacticID = ""
     @State private var workingSlots: [TacticSlot] = []
     @State private var dragOffsets: [String: CGSize] = [:]
     @State private var activeDragSlotID: String?
@@ -1195,6 +1398,12 @@ private struct TeamTacticCard: View {
         .onAppear {
             loadTactics()
         }
+        .onChange(of: scopeKey) { _ in
+            loadTactics()
+        }
+        .onChange(of: playersOnField) { _ in
+            loadTactics()
+        }
         .sheet(isPresented: $isSaveSheetPresented) {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 14) {
@@ -1252,10 +1461,21 @@ private struct TeamTacticCard: View {
     }
 
     private func loadTactics() {
-        if let data = tacticsJSON.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([SavedTactic].self, from: data),
-           !decoded.isEmpty {
-            tactics = decoded
+        let currentSelectedID = UserDefaults.standard.string(forKey: selectedTacticStorageKey)
+        let legacySelectedID = UserDefaults.standard.string(forKey: legacySelectedTacticStorageKey)
+        selectedTacticID = currentSelectedID ?? legacySelectedID ?? ""
+
+        let currentDecoded = decodedTactics(from: tacticsJSON)
+        let legacyDecoded = decodedTactics(from: legacyTacticsJSON)
+        let usingLegacyStorage = currentDecoded.isEmpty && !legacyDecoded.isEmpty
+        let storedTactics = currentDecoded.isEmpty ? legacyDecoded : currentDecoded
+
+        if !storedTactics.isEmpty {
+            tactics = storedTactics
+            if usingLegacyStorage {
+                persistTactics()
+                persistSelectedTacticID()
+            }
         } else {
             tactics = defaultTactics
             persistTactics()
@@ -1263,14 +1483,26 @@ private struct TeamTacticCard: View {
 
         if !tactics.contains(where: { $0.id == selectedTacticID }) {
             selectedTacticID = tactics.first?.id ?? ""
+            persistSelectedTacticID()
         }
         workingSlots = selectedTactic?.slots ?? tactics.first?.slots ?? []
+        dragOffsets = [:]
+        activeDragSlotID = nil
+    }
+
+    private func decodedTactics(from json: String) -> [SavedTactic] {
+        guard let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([SavedTactic].self, from: data) else {
+            return []
+        }
+        return decoded.filter { $0.slots.count == normalizedPlayersOnField }
     }
 
     private func apply(tactic: SavedTactic) {
         selectedTacticID = tactic.id
         workingSlots = tactic.slots
         dragOffsets = [:]
+        persistSelectedTacticID()
     }
 
     private func saveAsNewTactic() {
@@ -1288,6 +1520,7 @@ private struct TeamTacticCard: View {
         selectedTacticID = new.id
         workingSlots = new.slots
         persistTactics()
+        persistSelectedTacticID()
     }
 
     private func overwriteCurrentTactic() {
@@ -1322,7 +1555,35 @@ private struct TeamTacticCard: View {
     private func persistTactics() {
         guard let data = try? JSONEncoder().encode(tactics),
               let json = String(data: data, encoding: .utf8) else { return }
-        tacticsJSON = json
+        UserDefaults.standard.set(json, forKey: tacticsStorageKey)
+    }
+
+    private func persistSelectedTacticID() {
+        UserDefaults.standard.set(selectedTacticID, forKey: selectedTacticStorageKey)
+    }
+
+    private var tacticsJSON: String {
+        UserDefaults.standard.string(forKey: tacticsStorageKey) ?? ""
+    }
+
+    private var legacyTacticsJSON: String {
+        UserDefaults.standard.string(forKey: legacyTacticsStorageKey) ?? ""
+    }
+
+    private var tacticsStorageKey: String {
+        "izifoot.team.tactics.json.\(scopeKey).\(normalizedPlayersOnField)"
+    }
+
+    private var selectedTacticStorageKey: String {
+        "izifoot.team.tactics.selected.\(scopeKey).\(normalizedPlayersOnField)"
+    }
+
+    private var legacyTacticsStorageKey: String {
+        "izifoot.team.tactics.json.\(scopeKey)"
+    }
+
+    private var legacySelectedTacticStorageKey: String {
+        "izifoot.team.tactics.selected.\(scopeKey)"
     }
 
     private func handleDrop(slotID: String, startPointID: String, translation: CGSize, fieldSize: CGSize) {
@@ -1376,42 +1637,141 @@ private struct TeamTacticCard: View {
         activeDragSlotID = nil
     }
 
+    private var normalizedPlayersOnField: Int {
+        switch playersOnField {
+        case 3, 5, 8, 11:
+            return playersOnField
+        default:
+            return max(1, playersOnField)
+        }
+    }
+
+    private var formationTemplates: [FormationTemplate] {
+        switch normalizedPlayersOnField {
+        case 3:
+            return [
+                FormationTemplate(key: "def", label: "1-0-1", lines: [1, 0, 1]),
+                FormationTemplate(key: "mid", label: "1-1-0", lines: [1, 1, 0]),
+                FormationTemplate(key: "att", label: "0-1-1", lines: [0, 1, 1]),
+            ]
+        case 5:
+            return [
+                FormationTemplate(key: "balanced", label: "2-1-1", lines: [2, 1, 1]),
+                FormationTemplate(key: "middle", label: "1-2-1", lines: [1, 2, 1]),
+                FormationTemplate(key: "attack", label: "1-1-2", lines: [1, 1, 2]),
+            ]
+        case 8:
+            return [
+                FormationTemplate(key: "balanced", label: "3-2-2", lines: [3, 2, 2]),
+                FormationTemplate(key: "middle", label: "2-3-2", lines: [2, 3, 2]),
+                FormationTemplate(key: "attack", label: "2-2-3", lines: [2, 2, 3]),
+            ]
+        case 11:
+            return [
+                FormationTemplate(key: "balanced", label: "4-3-3", lines: [4, 3, 3]),
+                FormationTemplate(key: "middle", label: "4-4-2", lines: [4, 4, 2]),
+                FormationTemplate(key: "attack", label: "3-5-2", lines: [3, 5, 2]),
+            ]
+        default:
+            return [
+                FormationTemplate(
+                    key: "balanced",
+                    label: "Équilibre",
+                    lines: [max(1, normalizedPlayersOnField - 2), 1, 0]
+                ),
+            ]
+        }
+    }
+
     private var defaultTactics: [SavedTactic] {
-        [
+        formationTemplates.map { template in
             SavedTactic(
-                id: "default-losange",
-                name: "Losange",
-                slots: [
-                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
-                    TacticSlot(id: "s2", label: "DC", pointID: "p3"),
-                    TacticSlot(id: "s3", label: "AG", pointID: "p5"),
-                    TacticSlot(id: "s4", label: "AD", pointID: "p8"),
-                    TacticSlot(id: "s5", label: "P", pointID: "p10"),
-                ]
-            ),
-            SavedTactic(
-                id: "default-22",
-                name: "2-2",
-                slots: [
-                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
-                    TacticSlot(id: "s2", label: "DG", pointID: "p2"),
-                    TacticSlot(id: "s3", label: "DD", pointID: "p4"),
-                    TacticSlot(id: "s4", label: "AG", pointID: "p9"),
-                    TacticSlot(id: "s5", label: "AD", pointID: "p11"),
-                ]
-            ),
-            SavedTactic(
-                id: "default-pivot",
-                name: "Pivot",
-                slots: [
-                    TacticSlot(id: "s1", label: "GK", pointID: "p1"),
-                    TacticSlot(id: "s2", label: "DC", pointID: "p3"),
-                    TacticSlot(id: "s3", label: "AG", pointID: "p6"),
-                    TacticSlot(id: "s4", label: "AD", pointID: "p7"),
-                    TacticSlot(id: "s5", label: "P", pointID: "p10"),
-                ]
-            ),
-        ]
+                id: "default-\(normalizedPlayersOnField)-\(template.key)",
+                name: template.label,
+                slots: buildDefaultSlots(lines: template.lines)
+            )
+        }
+    }
+
+    private func buildDefaultSlots(lines: [Int]) -> [TacticSlot] {
+        let snappedPoints = snapTargetsToField(formationTargets(lines: lines))
+        return snappedPoints.enumerated().map { index, point in
+            TacticSlot(
+                id: "s\(index + 1)",
+                label: positionLabel(for: point),
+                pointID: point.id
+            )
+        }
+    }
+
+    private func formationTargets(lines: [Int]) -> [CGPoint] {
+        let normalizedLines = normalizeLines(lines)
+        var targets: [CGPoint] = [CGPoint(x: 0.50, y: 0.90)]
+
+        for x in spreadXs(normalizedLines[0]) {
+            targets.append(CGPoint(x: x, y: 0.72))
+        }
+        for x in spreadXs(normalizedLines[1]) {
+            targets.append(CGPoint(x: x, y: 0.53))
+        }
+        for x in spreadXs(normalizedLines[2]) {
+            targets.append(CGPoint(x: x, y: 0.32))
+        }
+
+        return Array(targets.prefix(normalizedPlayersOnField))
+    }
+
+    private func normalizeLines(_ lines: [Int]) -> [Int] {
+        let outfieldPlayers = max(0, normalizedPlayersOnField - 1)
+        let total = lines.reduce(0, +)
+
+        guard total > 0 else {
+            return [outfieldPlayers, 0, 0]
+        }
+
+        if total == outfieldPlayers {
+            return lines
+        }
+
+        let scaled = lines.map { Double($0) / Double(total) * Double(outfieldPlayers) }
+        var next = scaled.map { Int(floor($0)) }
+        let distributionOrder = [1, 0, 2]
+        var missing = outfieldPlayers - next.reduce(0, +)
+        var index = 0
+        while missing > 0 {
+            next[distributionOrder[index % distributionOrder.count]] += 1
+            index += 1
+            missing -= 1
+        }
+        return next
+    }
+
+    private func spreadXs(_ count: Int) -> [CGFloat] {
+        guard count > 1 else { return [0.50] }
+        let minX: CGFloat = 0.18
+        let maxX: CGFloat = 0.82
+        let step = (maxX - minX) / CGFloat(count - 1)
+        return (0..<count).map { index in
+            min(max(minX + step * CGFloat(index), 0.08), 0.92)
+        }
+    }
+
+    private func snapTargetsToField(_ targets: [CGPoint]) -> [TacticPoint] {
+        var available = points
+        var snapped: [TacticPoint] = []
+
+        for target in targets {
+            guard let nearestIndex = available.indices.min(by: { lhs, rhs in
+                let leftDistance = hypot(available[lhs].x - target.x, available[lhs].y - target.y)
+                let rightDistance = hypot(available[rhs].x - target.x, available[rhs].y - target.y)
+                return leftDistance < rightDistance
+            }) else {
+                continue
+            }
+            snapped.append(available.remove(at: nearestIndex))
+        }
+
+        return snapped
     }
 
     private var uniformNodeColor: Color {

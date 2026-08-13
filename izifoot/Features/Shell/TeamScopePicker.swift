@@ -10,7 +10,9 @@ struct TeamScopePicker: View {
                 Picker("Equipe active", selection: Binding(
                     get: { teamScopeStore.selectedTeamID ?? "" },
                     set: { newValue in
-                        teamScopeStore.selectedTeamID = newValue.isEmpty ? nil : newValue
+                        Task {
+                            await teamScopeStore.selectTeam(newValue.isEmpty ? nil : newValue, authStore: authStore)
+                        }
                     }
                 )) {
                     if authStore.me?.role == .direction {
@@ -30,6 +32,15 @@ struct TeamScopePicker: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: 180)
+            }
+            .disabled(teamScopeStore.isLoading || teamScopeStore.isSwitching)
+            .alert("Erreur", isPresented: Binding(
+                get: { teamScopeStore.errorMessage != nil },
+                set: { _ in teamScopeStore.errorMessage = nil }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(teamScopeStore.errorMessage ?? "")
             }
         }
     }

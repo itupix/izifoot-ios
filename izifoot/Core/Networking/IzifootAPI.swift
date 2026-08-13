@@ -110,6 +110,19 @@ final class IzifootAPI {
         try await client.get(APIRoutes.me, responseType: Me.self)
     }
 
+    func updateActiveTeam(teamID: String) async throws -> Me {
+        struct UpdateActiveTeamPayload: Encodable {
+            let teamId: String
+            let team_id: String
+        }
+
+        return try await client.put(
+            APIRoutes.meTeam,
+            body: UpdateActiveTeamPayload(teamId: teamID, team_id: teamID),
+            responseType: Me.self
+        )
+    }
+
     func meLinkedChild() async throws -> LinkedChildProfile? {
         try await client.get(APIRoutes.meChild, responseType: LinkedChildProfile?.self)
     }

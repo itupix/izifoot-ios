@@ -66,6 +66,7 @@ Restrictions: dependent on API availability.
 ## 7. Functional Behavior
 - UI behavior: grouped list presentation with create actions.
 - Actions: refresh list, create session items.
+- Team-scope changes from the global picker must reload the planning home against the newly active team scope before the user navigates elsewhere.
 - States: loading, loaded, empty, error.
 - Conditions: role controls creation affordances.
 - Validations: the create sheet no longer exposes a date field; it validates location for plateaux/tournaments, validates opponent for `MATCH`, requires a home/away choice for `MATCH`, and only requires location when the match is away before the API call.
@@ -81,6 +82,7 @@ Constraints: requires normalization for optional fields.
 
 ## 9. Business Rules
 - Team scope influences list and create requests.
+- Planning cache is segmented by active team scope to avoid showing another team's sessions after a picker change.
 - Creation options available based on role capabilities.
 - Detail navigation passes selected model context.
 
@@ -144,11 +146,12 @@ Constraints: requires normalization for optional fields.
 
 ## 20. Acceptance Criteria
 1. Planning list loads scoped trainings and matchdays.
-2. Coach/direction can create sessions from mobile UI.
-3. Parent/player cannot create sessions.
-4. Navigation to details works reliably.
-5. Reopening planning on the same local day restores the last visited date.
-6. Reopening planning on a later local day defaults to today.
+2. Switching the active team from the shell picker reloads the planning list on the new scope.
+3. Coach/direction can create sessions from mobile UI.
+4. Parent/player cannot create sessions.
+5. Navigation to details works reliably.
+6. Reopening planning on the same local day restores the last visited date.
+7. Reopening planning on a later local day defaults to today.
 
 ## 21. Test Scenarios
 - Happy path: create training then open detail.

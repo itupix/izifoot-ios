@@ -67,6 +67,7 @@ Restrictions: depends on backend validation.
 ## 7. Functional Behavior
 - UI behavior: list pagination, floating creation CTA, form sheet for creation, and trailing swipe actions for deletion.
 - Actions: create drill, inspect details, and delete drills with confirmation.
+- The drills home list must reload when the active team changes from the global picker.
 - States: loading, loaded, creating, error.
 - Conditions: role capability (`canEditSportData`) and active team selection when team scope is required.
 - Validations: required fields before create.
@@ -84,6 +85,7 @@ Constraints: backend scope.
 - Only authorized sport-edit roles can mutate drills.
 - Pagination uses backend pagination metadata.
 - Detail reload required after some mutations.
+- Drill-list cache is segmented by active team scope to avoid cross-team leakage after a picker change.
 
 ## 10. State Machine
 - List states: loading/ready/error.
@@ -145,9 +147,10 @@ Constraints: backend scope.
 
 ## 20. Acceptance Criteria
 1. Coach/direction can list, create, and delete drills.
-2. Drill detail loads correctly.
-3. Role-restricted users cannot access drill tab.
-4. API failures are handled without crashes.
+2. Changing the active team in the shell picker reloads drills on the new scope.
+3. Drill detail loads correctly.
+4. Role-restricted users cannot access drill tab.
+5. API failures are handled without crashes.
 
 ## 21. Test Scenarios
 - Happy path: create drill and view detail.
