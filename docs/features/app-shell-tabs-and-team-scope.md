@@ -68,9 +68,11 @@ Restrictions: depends on API and notification events.
 ## 7. Functional Behavior
 - UI behavior: tab set changes by role capability (`canEditSportData`).
 - Actions: choose tab, open chrome destinations, switch team.
+- Successful team creation from `Mon club` refreshes the shared picker options and makes the new team active after the backend confirms `PUT /me/team`.
+- A team switch from the global picker only publishes a specific team locally after backend confirmation, and immediately rebinds the main top-level views (`Planning`, `Mon équipe`, `Stats`, `Messages`, `Exercices`) to the confirmed scope.
 - States: shell initialized, unread badge updated, team scope ready.
 - Conditions: authenticated session required.
-- Validations: selected team must exist in fetched team options.
+- Validations: selected team must exist in fetched team options, and coaches only see `managedTeamIds`.
 - Blocking rules: no scope selection when role disallows it.
 - Automations: unread badge update observer.
 
@@ -89,6 +91,7 @@ Constraints: team membership.
 ## 9. Business Rules
 - Default tab derived from account role.
 - Team selector availability depends on role and team context.
+- Team picker is the single entry point for changing the active team scope on iOS.
 - Unread badge should reflect notifications and resets.
 - A `MESSAGE` push or a return to foreground should re-synchronize the shell badge state before the user manually opens the `Messages` tab.
 - The app icon badge should only reset after unread message state returns to zero, not on every app activation.
@@ -153,12 +156,15 @@ Constraints: team membership.
 ## 20. Acceptance Criteria
 1. Role-based tabs are correct for each user role.
 2. Team switching updates API scope context.
-3. Unread badges update from notifications.
-4. The `Messages` tab badge and app icon badge stay aligned with unread message state after push delivery and app reactivation.
-5. Unauthorized tabs are not exposed.
+3. Team switching reloads the main team-dependent tabs without mixing stale data from another team cache.
+4. Creating a team from club management refreshes the header selector and auto-selects the created team.
+5. Unread badges update from notifications.
+6. The `Messages` tab badge and app icon badge stay aligned with unread message state after push delivery and app reactivation.
+7. Unauthorized tabs are not exposed.
 
 ## 21. Test Scenarios
 - Happy path: coach switches team and navigates planning/messages.
+- Club admin path: direction creates a team from `Mon club` and immediately sees it selected in the header picker.
 - Permissions: parent does not see drills/players tabs.
 - Errors: team list fetch failure.
 - Edge cases: unread count notification arrives before shell ready.

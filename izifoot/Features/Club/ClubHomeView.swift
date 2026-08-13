@@ -178,12 +178,15 @@ final class ClubHomeViewModel: ObservableObject {
         }
     }
 
-    func createTeam(name: String, category: String?, format: String?) async {
+    @discardableResult
+    func createTeam(name: String, category: String?, format: String?) async -> Team? {
         do {
-            _ = try await api.createTeam(name: name, category: category, format: format)
+            let createdTeam = try await api.createTeam(name: name, category: category, format: format)
             await load()
+            return createdTeam
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return nil
         }
     }
 
@@ -374,6 +377,8 @@ final class ClubHomeViewModel: ObservableObject {
 }
 
 struct ClubHomeView: View {
+    @EnvironmentObject private var authStore: AuthStore
+    @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @StateObject private var viewModel = ClubHomeViewModel()
     @State private var isCreateTeamSheetPresented = false
     @State private var isRenameClubSheetPresented = false
@@ -495,8 +500,10 @@ struct ClubHomeView: View {
             }
             .sheet(isPresented: $isCreateTeamSheetPresented) {
                 CreateTeamSheet { name, category, format in
-                    await viewModel.createTeam(name: name, category: category, format: format)
-                    isCreateTeamSheetPresented = false
+                    if let createdTeam = await viewModel.createTeam(name: name, category: category, format: format) {
+                        await teamScopeStore.refresh(selecting: createdTeam.id, authStore: authStore)
+                        isCreateTeamSheetPresented = false
+                    }
                 }
                 .presentationDetents([.medium])
             }

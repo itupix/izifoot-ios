@@ -139,9 +139,6 @@ final class PlayerDetailViewModel: ObservableObject {
                 isChild: isChild,
                 teamID: teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : teamID
             )
-            if !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                AppSession.shared.activeTeamID = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
             if player?.isChild == true {
                 invitationStatus = .none
             } else {
@@ -284,7 +281,10 @@ struct PlayerDetailView: View {
                 )
                 if saved {
                     if !payload.teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        teamScopeStore.selectedTeamID = payload.teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+                        await teamScopeStore.selectTeam(
+                            payload.teamID.trimmingCharacters(in: .whitespacesAndNewlines),
+                            authStore: authStore
+                        )
                     }
                     isEditSheetPresented = false
                 }

@@ -68,6 +68,7 @@ Restrictions: backend role/scope checks.
 ## 7. Functional Behavior
 - UI behavior: sectioned lists for club, teams, and coaches with compact `Ajouter` actions in section headers; the team list shows only the team name and opens a dedicated team sheet for details and coach assignments, while both team sheets use explicit field labels, age-category tags, and a format dropdown.
 - Actions: mutate club name, team list, coach list, coach invitations, and coach-team assignments.
+- On successful team creation, the global team scope list is refreshed and the new team becomes active after backend scope confirmation.
 - States: loading, ready, mutating, error.
 - Conditions: direction role.
 - Validations: required text inputs.
@@ -84,6 +85,7 @@ Constraints: backend validations.
 ## 9. Business Rules
 - Only direction can mutate club/team settings.
 - Team creation requires category and format.
+- Team creation must immediately expose the new team in the global header selector and switch active scope to it once `PUT /me/team` succeeds.
 - Coach list derived from users and invitation context.
 - Coach creation and resend can immediately open a share sheet with the invitation link and QR.
 - The team-detail sheet is the primary surface for team metadata and coach assignments.
@@ -129,6 +131,7 @@ Constraints: backend validations.
 
 ## 17. UX Requirements
 - Feedback: clear save and failure messages.
+- Scope continuity: after team creation, the app header must reflect the backend-confirmed active team without manual refresh.
 - Empty states: no teams/no coaches/no assigned coach on a team.
 - Loading: progress indicator.
 - Responsive: native sheet UX.
@@ -155,12 +158,14 @@ Constraints: backend validations.
 ## 20. Acceptance Criteria
 1. Direction can view and update club basics.
 2. Direction can create team from iOS.
-3. Direction can add, assign, unassign, and delete coaches from iOS.
-4. Non-direction users cannot access club admin actions.
-5. Error states are surfaced cleanly.
+3. Newly created teams appear immediately in the global team selector and become active.
+4. Direction can add, assign, unassign, and delete coaches from iOS.
+5. Non-direction users cannot access club admin actions.
+6. Error states are surfaced cleanly.
 
 ## 21. Test Scenarios
 - Happy path: rename club, create team, add coach, assign the coach to another team, then remove one assignment.
+- Team scope: create a team and confirm the header selector shows it as the active team once the backend scope switch completes.
 - Permissions: coach blocked from club admin.
 - Errors: duplicate team name.
 - Edge cases: empty club without teams; deleting a pending coach; removing the last team from a coach.

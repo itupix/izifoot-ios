@@ -27,13 +27,6 @@ struct IzifootApp: App {
                         }
                     }
                 }
-                .onChange(of: teamScopeStore.selectedTeamID) { _ in
-                    if let selectedTeamID = teamScopeStore.selectedTeamID {
-                        AppSession.shared.activeTeamID = selectedTeamID
-                    } else {
-                        AppSession.shared.activeTeamID = nil
-                    }
-                }
         }
     }
 }
