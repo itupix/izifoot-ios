@@ -58,6 +58,6 @@ struct TeamScopePicker: View {
         if authStore.me?.role == .direction {
             return "Toutes"
         }
-        return teamScopeStore.teams.first?.name ?? "Equipe"
+        return "Choisir"
     }
 }

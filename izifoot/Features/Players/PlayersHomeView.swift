@@ -872,8 +872,13 @@ struct PlayersHomeView: View {
         "\(dataCacheKey)-\(teamScopeStore.scopeRevision)"
     }
 
-    private var tacticScopeKey: String {
-        teamScopeStore.selectedTeamID ?? "all"
+    private var tacticScopeKey: String? {
+        normalizedTeamID(teamScopeStore.selectedTeamID)
+    }
+
+    private var tacticRequiresActiveTeamSelection: Bool {
+        guard let role = authStore.me?.role else { return false }
+        return (role == .direction || role == .coach) && !teamScopeStore.teams.isEmpty && tacticScopeKey == nil
     }
 
     private var selectedTeamFormat: String? {
@@ -1181,9 +1186,18 @@ struct PlayersHomeView: View {
 
     private var tacticSection: some View {
         Section("Tactique") {
-            TeamTacticCard(scopeKey: tacticScopeKey, playersOnField: tacticPlayersOnField)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
+            if let tacticScopeKey {
+                TeamTacticCard(scopeKey: tacticScopeKey, playersOnField: tacticPlayersOnField)
+                    .id("team-tactic-\(tacticScopeKey)-\(tacticPlayersOnField)")
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
+            } else if tacticRequiresActiveTeamSelection {
+                Text("Selectionnez une equipe active pour acceder a la tactique de cette equipe.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Aucune equipe active disponible.")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -1191,6 +1205,14 @@ struct PlayersHomeView: View {
         TeamStatsSummaryView(viewModel: statsViewModel)
             .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
             .listRowBackground(Color.clear)
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else {
+            return nil
+        }
+        return teamID
     }
 }
 

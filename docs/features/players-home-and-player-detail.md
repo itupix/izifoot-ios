@@ -88,6 +88,7 @@ Constraints: backend role/scope and field constraints.
 - Player list is paginated.
 - Team reassignment stays limited to writable teams and shifts the active team scope to the newly assigned team after save.
 - Player list cache and tactic storage are segmented by active team to avoid cross-team bleed.
+- The tactic workspace is only available when an active team is explicitly selected; no shared fallback workspace is exposed across multiple teams.
 
 ## 10. State Machine
 - Player states: created/updated/deleted.
