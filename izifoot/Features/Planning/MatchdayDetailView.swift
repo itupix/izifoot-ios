@@ -76,58 +76,6 @@ fileprivate func playersOnFieldFromStoredTeamFormat(_ rawFormat: String?) -> Int
     }
 }
 
-fileprivate func storedTeamTacticPoint(by pointID: String) -> MatchTacticPoint? {
-    switch pointID {
-    case "p1": return MatchTacticPoint(x: 50, y: 90)
-    case "p2": return MatchTacticPoint(x: 20, y: 82)
-    case "p3": return MatchTacticPoint(x: 35, y: 82)
-    case "p4": return MatchTacticPoint(x: 50, y: 82)
-    case "p5": return MatchTacticPoint(x: 65, y: 82)
-    case "p6": return MatchTacticPoint(x: 80, y: 82)
-    case "p7": return MatchTacticPoint(x: 14, y: 72)
-    case "p8": return MatchTacticPoint(x: 26, y: 72)
-    case "p9": return MatchTacticPoint(x: 38, y: 72)
-    case "p10": return MatchTacticPoint(x: 50, y: 72)
-    case "p11": return MatchTacticPoint(x: 62, y: 72)
-    case "p12": return MatchTacticPoint(x: 74, y: 72)
-    case "p13": return MatchTacticPoint(x: 86, y: 72)
-    case "p14": return MatchTacticPoint(x: 10, y: 60)
-    case "p15": return MatchTacticPoint(x: 20, y: 60)
-    case "p16": return MatchTacticPoint(x: 30, y: 60)
-    case "p17": return MatchTacticPoint(x: 40, y: 60)
-    case "p18": return MatchTacticPoint(x: 50, y: 60)
-    case "p19": return MatchTacticPoint(x: 60, y: 60)
-    case "p20": return MatchTacticPoint(x: 70, y: 60)
-    case "p21": return MatchTacticPoint(x: 80, y: 60)
-    case "p22": return MatchTacticPoint(x: 90, y: 60)
-    case "p23": return MatchTacticPoint(x: 10, y: 48)
-    case "p24": return MatchTacticPoint(x: 20, y: 48)
-    case "p25": return MatchTacticPoint(x: 30, y: 48)
-    case "p26": return MatchTacticPoint(x: 40, y: 48)
-    case "p27": return MatchTacticPoint(x: 50, y: 48)
-    case "p28": return MatchTacticPoint(x: 60, y: 48)
-    case "p29": return MatchTacticPoint(x: 70, y: 48)
-    case "p30": return MatchTacticPoint(x: 80, y: 48)
-    case "p31": return MatchTacticPoint(x: 90, y: 48)
-    case "p32": return MatchTacticPoint(x: 14, y: 36)
-    case "p33": return MatchTacticPoint(x: 26, y: 36)
-    case "p34": return MatchTacticPoint(x: 38, y: 36)
-    case "p35": return MatchTacticPoint(x: 50, y: 36)
-    case "p36": return MatchTacticPoint(x: 62, y: 36)
-    case "p37": return MatchTacticPoint(x: 74, y: 36)
-    case "p38": return MatchTacticPoint(x: 86, y: 36)
-    case "p39": return MatchTacticPoint(x: 20, y: 24)
-    case "p40": return MatchTacticPoint(x: 35, y: 24)
-    case "p41": return MatchTacticPoint(x: 50, y: 24)
-    case "p42": return MatchTacticPoint(x: 65, y: 24)
-    case "p43": return MatchTacticPoint(x: 80, y: 24)
-    case "p44": return MatchTacticPoint(x: 30, y: 14)
-    case "p45": return MatchTacticPoint(x: 50, y: 14)
-    case "p46": return MatchTacticPoint(x: 70, y: 14)
-    default: return nil
-    }
-}
-
 fileprivate func exactMatchTacticPoints(
     _ points: [String: MatchTacticPoint]?,
     tokens: [String]
@@ -180,11 +128,12 @@ fileprivate func readStoredTeamTacticLayout(
 
     let tokens = ["gk"] + (1..<playersOnField).map { "p\($0)" }
     guard tactic.slots.count >= tokens.count else { return nil }
+    let pointIDs = TacticalFieldLayout.migratePointIDs(Array(tactic.slots.prefix(tokens.count).map(\.pointID)))
 
     var points: [String: MatchTacticPoint] = [:]
-    for (token, slot) in zip(tokens, tactic.slots) {
-        guard let point = storedTeamTacticPoint(by: slot.pointID) else { return nil }
-        points[token] = point
+    for (token, pointID) in zip(tokens, pointIDs) {
+        guard let point = TacticalFieldLayout.point(by: pointID) else { return nil }
+        points[token] = MatchTacticPoint(x: Double(point.x), y: Double(point.y))
     }
 
     return (preferredMatchPreset(for: playersOnField), points)
@@ -3129,27 +3078,11 @@ private struct MatchLineupPitchView: View {
     @ObservedObject var viewModel: MatchdayMatchDetailViewModel
 
     var body: some View {
-        GeometryReader { proxy in
+        TacticalPitchView(cornerRadius: 20, centerCircleScale: 0.24) { fieldSize in
+            let slotDiameter = slotDiameter(for: fieldSize.width)
+            let nameWidth = slotLabelWidth(for: fieldSize.width)
+            let slotPadding = slotPadding(for: fieldSize.width)
             ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.29, green: 0.58, blue: 0.31), Color(red: 0.36, green: 0.65, blue: 0.39)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                Rectangle()
-                    .fill(.white.opacity(0.5))
-                    .frame(height: 2)
-                    .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-
-                Circle()
-                    .stroke(.white.opacity(0.45), lineWidth: 2)
-                    .frame(width: min(proxy.size.width, proxy.size.height) * 0.24)
-                    .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-
                 ForEach(viewModel.tokens, id: \.self) { token in
                     let point = viewModel.point(for: token)
                     let playerID = viewModel.slotAssignments[token]
@@ -3158,18 +3091,45 @@ private struct MatchLineupPitchView: View {
                         playerName: playerID.map(viewModel.shortDisplayName(for:)),
                         playerColor: playerID.map(viewModel.playerColor(for:)),
                         isSelected: playerID.map(viewModel.isSelected(playerID:)) ?? false,
+                        diameter: slotDiameter,
+                        labelWidth: nameWidth,
+                        padding: slotPadding,
                         onTap: {
                             viewModel.selectSlot(token)
                         }
                     )
                     .position(
-                        x: proxy.size.width * CGFloat(point.x / 100),
-                        y: proxy.size.height * CGFloat(point.y / 100)
+                        x: fieldSize.width * CGFloat(point.x / 100),
+                        y: fieldSize.height * CGFloat(point.y / 100)
                     )
                 }
             }
         }
-        .frame(height: 430)
+    }
+
+    private func slotDiameter(for pitchWidth: CGFloat) -> CGFloat {
+        let maximum: CGFloat
+        switch viewModel.playersOnField {
+        case 11...:
+            maximum = 50
+        case 8...10:
+            maximum = 56
+        default:
+            maximum = 64
+        }
+        return min(max(pitchWidth * 0.12, 46), maximum)
+    }
+
+    private func slotLabelWidth(for pitchWidth: CGFloat) -> CGFloat {
+        let maximum: CGFloat = viewModel.playersOnField >= 11 ? 76 : viewModel.playersOnField >= 8 ? 84 : 92
+        return min(max(pitchWidth * 0.18, 62), maximum)
+    }
+
+    private func slotPadding(for pitchWidth: CGFloat) -> CGFloat {
+        if viewModel.playersOnField >= 11 || pitchWidth < 360 {
+            return 4
+        }
+        return viewModel.playersOnField >= 8 ? 6 : 8
     }
 }
 
@@ -3178,6 +3138,9 @@ private struct MatchLineupSlotView: View {
     let playerName: String?
     let playerColor: Color?
     let isSelected: Bool
+    let diameter: CGFloat
+    let labelWidth: CGFloat
+    let padding: CGFloat
     let onTap: () -> Void
 
     var body: some View {
@@ -3185,7 +3148,7 @@ private struct MatchLineupSlotView: View {
             ZStack {
                 Circle()
                     .fill((playerColor ?? .white).opacity(playerColor == nil ? 0.16 : 0.96))
-                    .frame(width: 64, height: 64)
+                    .frame(width: diameter, height: diameter)
                     .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
                     .overlay(
                         Circle()
@@ -3198,7 +3161,7 @@ private struct MatchLineupSlotView: View {
 
                 if let playerName {
                     Text(initials(from: playerName))
-                        .font(.headline.weight(.bold))
+                        .font(.system(size: max(16, diameter * 0.30), weight: .bold))
                         .foregroundStyle(.white)
                 } else {
                     Image(systemName: "plus")
@@ -3213,10 +3176,10 @@ private struct MatchLineupSlotView: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 92)
+                    .frame(maxWidth: labelWidth)
             }
         }
-        .padding(8)
+        .padding(padding)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
     }
@@ -3308,40 +3271,29 @@ private func layoutRows(for playersOnField: Int, preset: String) -> [Int] {
     case 3:
         return [1, 1]
     case 5:
+        if preset.contains("diamond") { return [1, 2, 1] }
         if preset.contains("square") { return [2, 2] }
-        return [1, 2, 1]
+        return [2, 1, 1]
     case 8:
-        return [3, 3, 1]
+        if preset.contains("3-3-1") { return [3, 3, 1] }
+        return [3, 2, 2]
     case 11:
         if preset.contains("4-4-2") { return [4, 4, 2] }
         return [4, 3, 3]
     default:
-        return [1, 2, 1]
+        return [max(1, playersOnField - 2), 1]
     }
 }
 
 private func defaultPoints(tokens: [String], playersOnField: Int, preset: String) -> [String: MatchTacticPoint] {
     guard !tokens.isEmpty else { return [:] }
-    var points: [String: MatchTacticPoint] = ["gk": MatchTacticPoint(x: 50, y: 90)]
-    let rows = layoutRows(for: playersOnField, preset: preset)
-    let yValues = rows.count == 1 ? [45.0] : stride(from: 72.0, through: 28.0, by: -(44.0 / Double(max(rows.count - 1, 1)))).map { $0 }
-
-    var tokenIndex = 1
-    for (rowIndex, rowCount) in rows.enumerated() {
-        let y = rowIndex < yValues.count ? yValues[rowIndex] : 50.0
-        let xs: [Double]
-        if rowCount == 1 {
-            xs = [50]
-        } else {
-            let step = 64.0 / Double(rowCount - 1)
-            xs = (0..<rowCount).map { 18.0 + (Double($0) * step) }
-        }
-        for x in xs where tokenIndex < tokens.count {
-            points[tokens[tokenIndex]] = MatchTacticPoint(x: x, y: y)
-            tokenIndex += 1
-        }
-    }
-    return points
+    let formationPoints = TacticalFieldLayout.formationPoints(
+        playersOnField: playersOnField,
+        lines: layoutRows(for: playersOnField, preset: preset)
+    )
+    return Dictionary(uniqueKeysWithValues: zip(tokens, formationPoints).map { token, point in
+        (token, MatchTacticPoint(x: Double(point.x), y: Double(point.y)))
+    })
 }
 
 private func unique(_ values: [String]) -> [String] {

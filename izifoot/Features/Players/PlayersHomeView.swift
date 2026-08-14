@@ -1216,12 +1216,6 @@ struct PlayersHomeView: View {
     }
 }
 
-private struct TacticPoint: Codable, Identifiable {
-    let id: String
-    let x: CGFloat
-    let y: CGFloat
-}
-
 private struct TacticSlot: Codable, Identifiable, Equatable {
     let id: String
     var label: String
@@ -1261,54 +1255,7 @@ private struct TeamTacticCard: View {
     @State private var newTacticName = ""
     @State private var saveMode: SaveMode = .overwrite
 
-    private let points: [TacticPoint] = [
-        .init(id: "p1", x: 0.50, y: 0.90),
-        .init(id: "p2", x: 0.20, y: 0.82),
-        .init(id: "p3", x: 0.35, y: 0.82),
-        .init(id: "p4", x: 0.50, y: 0.82),
-        .init(id: "p5", x: 0.65, y: 0.82),
-        .init(id: "p6", x: 0.80, y: 0.82),
-        .init(id: "p7", x: 0.14, y: 0.72),
-        .init(id: "p8", x: 0.26, y: 0.72),
-        .init(id: "p9", x: 0.38, y: 0.72),
-        .init(id: "p10", x: 0.50, y: 0.72),
-        .init(id: "p11", x: 0.62, y: 0.72),
-        .init(id: "p12", x: 0.74, y: 0.72),
-        .init(id: "p13", x: 0.86, y: 0.72),
-        .init(id: "p14", x: 0.10, y: 0.60),
-        .init(id: "p15", x: 0.20, y: 0.60),
-        .init(id: "p16", x: 0.30, y: 0.60),
-        .init(id: "p17", x: 0.40, y: 0.60),
-        .init(id: "p18", x: 0.50, y: 0.60),
-        .init(id: "p19", x: 0.60, y: 0.60),
-        .init(id: "p20", x: 0.70, y: 0.60),
-        .init(id: "p21", x: 0.80, y: 0.60),
-        .init(id: "p22", x: 0.90, y: 0.60),
-        .init(id: "p23", x: 0.10, y: 0.48),
-        .init(id: "p24", x: 0.20, y: 0.48),
-        .init(id: "p25", x: 0.30, y: 0.48),
-        .init(id: "p26", x: 0.40, y: 0.48),
-        .init(id: "p27", x: 0.50, y: 0.48),
-        .init(id: "p28", x: 0.60, y: 0.48),
-        .init(id: "p29", x: 0.70, y: 0.48),
-        .init(id: "p30", x: 0.80, y: 0.48),
-        .init(id: "p31", x: 0.90, y: 0.48),
-        .init(id: "p32", x: 0.14, y: 0.36),
-        .init(id: "p33", x: 0.26, y: 0.36),
-        .init(id: "p34", x: 0.38, y: 0.36),
-        .init(id: "p35", x: 0.50, y: 0.36),
-        .init(id: "p36", x: 0.62, y: 0.36),
-        .init(id: "p37", x: 0.74, y: 0.36),
-        .init(id: "p38", x: 0.86, y: 0.36),
-        .init(id: "p39", x: 0.20, y: 0.24),
-        .init(id: "p40", x: 0.35, y: 0.24),
-        .init(id: "p41", x: 0.50, y: 0.24),
-        .init(id: "p42", x: 0.65, y: 0.24),
-        .init(id: "p43", x: 0.80, y: 0.24),
-        .init(id: "p44", x: 0.30, y: 0.14),
-        .init(id: "p45", x: 0.50, y: 0.14),
-        .init(id: "p46", x: 0.70, y: 0.14),
-    ]
+    private let points = TacticalFieldLayout.snapPoints
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1340,42 +1287,24 @@ private struct TeamTacticCard: View {
                 Spacer()
             }
 
-            GeometryReader { proxy in
+            TacticalPitchView(centerCircleScale: 0.22) { fieldSize in
+                let nodeSize = editorNodeSize(for: fieldSize.width)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.29, green: 0.58, blue: 0.31), Color(red: 0.36, green: 0.65, blue: 0.39)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-
-                    Rectangle()
-                        .fill(.white.opacity(0.42))
-                        .frame(height: 2)
-                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-
-                    Circle()
-                        .stroke(.white.opacity(0.34), lineWidth: 2)
-                        .frame(width: min(proxy.size.width, proxy.size.height) * 0.22)
-                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-
                     if activeDragSlotID != nil {
                         ForEach(points) { point in
                             Circle()
                                 .fill(.white.opacity(0.28))
                                 .frame(width: 10, height: 10)
-                                .position(x: proxy.size.width * point.x, y: proxy.size.height * point.y)
+                                .position(x: fieldSize.width * point.normalizedX, y: fieldSize.height * point.normalizedY)
                         }
                     }
 
                     ForEach(Array(workingSlots.enumerated()), id: \.element.id) { _, slot in
                         if let point = point(by: slot.pointID) {
-                            TeamTacticPositionNode(label: positionLabel(for: point), color: uniformNodeColor)
+                            TeamTacticPositionNode(label: positionLabel(for: point), color: uniformNodeColor, size: nodeSize)
                                 .position(
-                                    x: proxy.size.width * point.x + (dragOffsets[slot.id]?.width ?? 0),
-                                    y: proxy.size.height * point.y + (dragOffsets[slot.id]?.height ?? 0)
+                                    x: fieldSize.width * point.normalizedX + (dragOffsets[slot.id]?.width ?? 0),
+                                    y: fieldSize.height * point.normalizedY + (dragOffsets[slot.id]?.height ?? 0)
                                 )
                                 .gesture(
                                     DragGesture()
@@ -1388,7 +1317,7 @@ private struct TeamTacticCard: View {
                                                 slotID: slot.id,
                                                 startPointID: slot.pointID,
                                                 translation: value.translation,
-                                                fieldSize: proxy.size
+                                                fieldSize: fieldSize
                                             )
                                         }
                                 )
@@ -1396,7 +1325,6 @@ private struct TeamTacticCard: View {
                     }
                 }
             }
-            .frame(height: 420)
 
             if hasUnsavedChanges {
                 HStack(spacing: 10) {
@@ -1491,10 +1419,12 @@ private struct TeamTacticCard: View {
         let legacyDecoded = decodedTactics(from: legacyTacticsJSON)
         let usingLegacyStorage = currentDecoded.isEmpty && !legacyDecoded.isEmpty
         let storedTactics = currentDecoded.isEmpty ? legacyDecoded : currentDecoded
+        let sanitizedStoredTactics = storedTactics.map(sanitizedTactic)
+        let didMigrateStoredTactics = sanitizedStoredTactics != storedTactics
 
-        if !storedTactics.isEmpty {
-            tactics = storedTactics
-            if usingLegacyStorage {
+        if !sanitizedStoredTactics.isEmpty {
+            tactics = sanitizedStoredTactics
+            if usingLegacyStorage || didMigrateStoredTactics {
                 persistTactics()
                 persistSelectedTacticID()
             }
@@ -1507,7 +1437,7 @@ private struct TeamTacticCard: View {
             selectedTacticID = tactics.first?.id ?? ""
             persistSelectedTacticID()
         }
-        workingSlots = selectedTactic?.slots ?? tactics.first?.slots ?? []
+        workingSlots = preparedSlots(selectedTactic?.slots ?? tactics.first?.slots ?? [])
         dragOffsets = [:]
         activeDragSlotID = nil
     }
@@ -1522,7 +1452,7 @@ private struct TeamTacticCard: View {
 
     private func apply(tactic: SavedTactic) {
         selectedTacticID = tactic.id
-        workingSlots = tactic.slots
+        workingSlots = preparedSlots(tactic.slots)
         dragOffsets = [:]
         persistSelectedTacticID()
     }
@@ -1530,13 +1460,7 @@ private struct TeamTacticCard: View {
     private func saveAsNewTactic() {
         let name = newTacticName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        let prepared = normalized(workingSlots).map { slot in
-            var copy = slot
-            if let point = point(by: slot.pointID) {
-                copy.label = positionLabel(for: point)
-            }
-            return copy
-        }
+        let prepared = preparedSlots(workingSlots)
         let new = SavedTactic(id: UUID().uuidString, name: name, slots: prepared)
         tactics.append(new)
         selectedTacticID = new.id
@@ -1552,14 +1476,7 @@ private struct TeamTacticCard: View {
             return
         }
 
-        let prepared = normalized(workingSlots).map { slot in
-            var copy = slot
-            if let point = point(by: slot.pointID) {
-                copy.label = positionLabel(for: point)
-            }
-            return copy
-        }
-
+        let prepared = preparedSlots(workingSlots)
         tactics[index] = SavedTactic(id: selected.id, name: selected.name, slots: prepared)
         workingSlots = prepared
         persistTactics()
@@ -1614,8 +1531,8 @@ private struct TeamTacticCard: View {
             activeDragSlotID = nil
         }
         let start = point(by: startPointID) ?? points[0]
-        let destinationX = start.x + (translation.width / max(fieldSize.width, 1))
-        let destinationY = start.y + (translation.height / max(fieldSize.height, 1))
+        let destinationX = start.normalizedX + (translation.width / max(fieldSize.width, 1))
+        let destinationY = start.normalizedY + (translation.height / max(fieldSize.height, 1))
 
         guard let nearest = nearestPoint(toX: destinationX, y: destinationY) else { return }
 
@@ -1636,25 +1553,41 @@ private struct TeamTacticCard: View {
         }
     }
 
-    private func nearestPoint(toX x: CGFloat, y: CGFloat) -> TacticPoint? {
+    private func nearestPoint(toX x: CGFloat, y: CGFloat) -> TacticalGridPoint? {
         points.min { lhs, rhs in
-            let dl = hypot(lhs.x - x, lhs.y - y)
-            let dr = hypot(rhs.x - x, rhs.y - y)
+            let dl = hypot(lhs.normalizedX - x, lhs.normalizedY - y)
+            let dr = hypot(rhs.normalizedX - x, rhs.normalizedY - y)
             return dl < dr
         }
     }
 
-    private func point(by id: String) -> TacticPoint? {
-        points.first(where: { $0.id == id })
+    private func point(by id: String) -> TacticalGridPoint? {
+        TacticalFieldLayout.point(by: id)
     }
 
     private func normalized(_ slots: [TacticSlot]) -> [TacticSlot] {
         slots.sorted { $0.id < $1.id }
     }
 
+    private func preparedSlots(_ slots: [TacticSlot]) -> [TacticSlot] {
+        let migratedPointIDs = TacticalFieldLayout.migratePointIDs(slots.map(\.pointID))
+        return normalized(zip(slots, migratedPointIDs).map { slot, pointID in
+            var copy = slot
+            copy.pointID = pointID
+            if let point = point(by: pointID) {
+                copy.label = positionLabel(for: point)
+            }
+            return copy
+        })
+    }
+
+    private func sanitizedTactic(_ tactic: SavedTactic) -> SavedTactic {
+        SavedTactic(id: tactic.id, name: tactic.name, slots: preparedSlots(tactic.slots))
+    }
+
     private func resetCurrentChanges() {
         guard let selectedTactic else { return }
-        workingSlots = selectedTactic.slots
+        workingSlots = preparedSlots(selectedTactic.slots)
         dragOffsets = [:]
         activeDragSlotID = nil
     }
@@ -1716,8 +1649,9 @@ private struct TeamTacticCard: View {
     }
 
     private func buildDefaultSlots(lines: [Int]) -> [TacticSlot] {
-        let snappedPoints = snapTargetsToField(formationTargets(lines: lines))
-        return snappedPoints.enumerated().map { index, point in
+        TacticalFieldLayout.formationPoints(playersOnField: normalizedPlayersOnField, lines: lines)
+            .enumerated()
+            .map { index, point in
             TacticSlot(
                 id: "s\(index + 1)",
                 label: positionLabel(for: point),
@@ -1726,103 +1660,32 @@ private struct TeamTacticCard: View {
         }
     }
 
-    private func formationTargets(lines: [Int]) -> [CGPoint] {
-        let normalizedLines = normalizeLines(lines)
-        var targets: [CGPoint] = [CGPoint(x: 0.50, y: 0.90)]
-
-        for x in spreadXs(normalizedLines[0]) {
-            targets.append(CGPoint(x: x, y: 0.72))
-        }
-        for x in spreadXs(normalizedLines[1]) {
-            targets.append(CGPoint(x: x, y: 0.53))
-        }
-        for x in spreadXs(normalizedLines[2]) {
-            targets.append(CGPoint(x: x, y: 0.32))
-        }
-
-        return Array(targets.prefix(normalizedPlayersOnField))
-    }
-
-    private func normalizeLines(_ lines: [Int]) -> [Int] {
-        let outfieldPlayers = max(0, normalizedPlayersOnField - 1)
-        let total = lines.reduce(0, +)
-
-        guard total > 0 else {
-            return [outfieldPlayers, 0, 0]
-        }
-
-        if total == outfieldPlayers {
-            return lines
-        }
-
-        let scaled = lines.map { Double($0) / Double(total) * Double(outfieldPlayers) }
-        var next = scaled.map { Int(floor($0)) }
-        let distributionOrder = [1, 0, 2]
-        var missing = outfieldPlayers - next.reduce(0, +)
-        var index = 0
-        while missing > 0 {
-            next[distributionOrder[index % distributionOrder.count]] += 1
-            index += 1
-            missing -= 1
-        }
-        return next
-    }
-
-    private func spreadXs(_ count: Int) -> [CGFloat] {
-        guard count > 1 else { return [0.50] }
-        let minX: CGFloat = 0.18
-        let maxX: CGFloat = 0.82
-        let step = (maxX - minX) / CGFloat(count - 1)
-        return (0..<count).map { index in
-            min(max(minX + step * CGFloat(index), 0.08), 0.92)
-        }
-    }
-
-    private func snapTargetsToField(_ targets: [CGPoint]) -> [TacticPoint] {
-        var available = points
-        var snapped: [TacticPoint] = []
-
-        for target in targets {
-            guard let nearestIndex = available.indices.min(by: { lhs, rhs in
-                let leftDistance = hypot(available[lhs].x - target.x, available[lhs].y - target.y)
-                let rightDistance = hypot(available[rhs].x - target.x, available[rhs].y - target.y)
-                return leftDistance < rightDistance
-            }) else {
-                continue
-            }
-            snapped.append(available.remove(at: nearestIndex))
-        }
-
-        return snapped
+    private func editorNodeSize(for fieldWidth: CGFloat) -> CGFloat {
+        let baseDivisor: CGFloat = normalizedPlayersOnField >= 11 ? 8.4 : normalizedPlayersOnField >= 8 ? 7.8 : 7.0
+        return min(max(fieldWidth / baseDivisor, 42), 50)
     }
 
     private var uniformNodeColor: Color {
         Color(red: 0.14, green: 0.43, blue: 0.89)
     }
 
-    private func positionLabel(for point: TacticPoint) -> String {
-        if point.y > 0.82 { return "GK" }
+    private func positionLabel(for point: TacticalGridPoint) -> String {
+        if point.y >= 82 { return "GK" }
 
-        if point.y > 0.66 {
-            if point.x < 0.30 { return "DG" }
-            if point.x > 0.70 { return "DD" }
+        if point.y >= 58 {
+            if point.x < 33 { return "DG" }
+            if point.x > 67 { return "DD" }
             return "DC"
         }
 
-        if point.y > 0.52 {
-            if point.x < 0.30 { return "MG" }
-            if point.x > 0.70 { return "MD" }
+        if point.y >= 42 {
+            if point.x < 33 { return "MG" }
+            if point.x > 67 { return "MD" }
             return "MC"
         }
 
-        if point.y > 0.34 {
-            if point.x < 0.30 { return "AG" }
-            if point.x > 0.70 { return "AD" }
-            return "MO"
-        }
-
-        if point.x < 0.30 { return "AG" }
-        if point.x > 0.70 { return "AD" }
+        if point.x < 33 { return "AG" }
+        if point.x > 67 { return "AD" }
         return "BU"
     }
 }
@@ -1830,11 +1693,12 @@ private struct TeamTacticCard: View {
 private struct TeamTacticPositionNode: View {
     let label: String
     let color: Color
+    let size: CGFloat
 
     var body: some View {
         Circle()
             .fill(color.gradient)
-            .frame(width: 50, height: 50)
+            .frame(width: size, height: size)
             .overlay {
                 Text(label)
                     .font(.caption.weight(.bold))

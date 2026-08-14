@@ -72,6 +72,7 @@ Restrictions: API contract complexity.
 - Rotation/planning matches keep their regular score/composition workflow and do not expose those manual-only destructive/editing shortcuts.
 - Historical player names from matchday summary and match detail payloads are preferred over current roster data so past scorers stay readable after a transfer, with `Joueur inconnu` as the final fallback.
 - The tactical match sheet also resolves lineup and bench names from the detailed match payload, including the nested `player.name` contract used by the backend, so transferred players keep their historical label in formation editing.
+- Match composition reuses the same canonical iOS pitch grid as the roster tactic editor, with a fixed `68:105` pitch ratio and a regular `5 x 9` lattice across the playable surface so iPhone and iPad renderings stay consistent.
 - Match list decoding also reuses the backend compatibility field `scorersDetailed` when needed, so existing shared/summary payloads still surface the stored historical scorer name on iOS.
 - States: loading, editing, persisting, sheet-specific error.
 - Conditions: role/scope authorization.

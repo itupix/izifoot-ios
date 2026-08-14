@@ -67,6 +67,7 @@ Restrictions: dependent on multi-endpoint calls.
 ## 7. Functional Behavior
 - UI behavior: paginated list and sheet-based create/edit forms, including editing directly from player detail with licence and date-of-birth support, visible club/team context, conditional team reassignment when several writable teams exist, a detail title based on the player full name, and explicit parent-account invitation entry points on child profiles.
 - Global team-scope changes must reload the roster list, scoped stats, and local tactic workspace for the newly selected team.
+- The local tactic workspace keeps a fixed football-pitch ratio (`68:105`) and a shared regular `5 x 9` placement grid across the full playable pitch surface, so roster tactics snap on a simple uniform lattice on iPhone and iPad.
 - Actions: CRUD plus adult invite operations and per-parent invite/resend actions for child accounts.
 - States: loading, saving, deleting, error.
 - Conditions: role and scope checks.
