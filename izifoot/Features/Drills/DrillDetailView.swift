@@ -6,6 +6,9 @@ final class DrillDetailViewModel: ObservableObject {
     @Published private(set) var drill: Drill?
     @Published private(set) var diagram: Diagram?
     @Published private(set) var isLoading = false
+    @Published private(set) var isLoadingDiagram = false
+    @Published private(set) var loadErrorMessage: String?
+    @Published private(set) var diagramErrorMessage: String?
     @Published private(set) var isSavingDiagram = false
     @Published private(set) var isGeneratingDiagram = false
     @Published var errorMessage: String?
@@ -17,25 +20,36 @@ final class DrillDetailViewModel: ObservableObject {
     }
 
     func load(drillID: String, trainingDrillID: String?) async {
-        isLoading = true
-        defer { isLoading = false }
+        async let details: Void = loadDrill(drillID: drillID)
+        async let illustration: Void = loadDiagram(drillID: drillID, trainingDrillID: trainingDrillID)
+        _ = await (details, illustration)
+    }
 
+    func loadDrill(drillID: String) async {
+        isLoading = true
+        loadErrorMessage = nil
+        defer { isLoading = false }
         do {
-            async let drillTask = api.drill(id: drillID)
+            drill = try await api.drill(id: drillID)
+        } catch {
+            if !error.isCancellationError { loadErrorMessage = error.localizedDescription }
+        }
+    }
+
+    func loadDiagram(drillID: String, trainingDrillID: String?) async {
+        isLoadingDiagram = true
+        diagramErrorMessage = nil
+        defer { isLoadingDiagram = false }
+        do {
             let diagrams: [Diagram]
             if let trainingDrillID {
                 diagrams = try await api.trainingDrillDiagrams(trainingDrillID: trainingDrillID)
             } else {
                 diagrams = try await api.drillDiagrams(drillID: drillID)
             }
-
-            drill = try await drillTask
             diagram = diagrams.first
-            errorMessage = nil
         } catch {
-            if !error.isCancellationError {
-                errorMessage = error.localizedDescription
-            }
+            if !error.isCancellationError { diagramErrorMessage = error.localizedDescription }
         }
     }
 
@@ -56,6 +70,7 @@ final class DrillDetailViewModel: ObservableObject {
             } else {
                 diagram = try await api.createDrillDiagram(drillID: drillID, data: data)
             }
+            diagramErrorMessage = nil
             errorMessage = nil
             return true
         } catch {
@@ -76,6 +91,7 @@ final class DrillDetailViewModel: ObservableObject {
             } else {
                 diagram = try await api.generateAIDrillDiagram(drillID: drillID, objective: objective)
             }
+            diagramErrorMessage = nil
             errorMessage = nil
         } catch {
             if !error.isCancellationError {
@@ -100,144 +116,61 @@ struct DrillDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
-                    DrillDetailCard {
-                        Text("Sélectionnez une équipe active pour modifier la fiche ou le diagramme de cet exercice.")
+            VStack(alignment: .leading, spacing: 20) {
+                if let drill = viewModel.drill {
+                    drillHeader(drill)
+
+                    if let message = viewModel.loadErrorMessage {
+                        loadingError(title: "La fiche n’a pas pu être actualisée.", message: message) {
+                            await viewModel.loadDrill(drillID: drillID)
+                        }
+                    }
+
+                    if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
+                        Label("Sélectionnez une équipe active pour modifier la fiche ou le diagramme.", systemImage: "info.circle")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
-                }
-
-                if let drill = viewModel.drill {
-                    if teamScopedWritable {
-                        Button {
-                            isDrillEditorPresented = true
-                        } label: {
-                            Label("Modifier la fiche", systemImage: "square.and.pencil")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    DrillDetailCard {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(DrillCategory.label(for: drill.category))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-
-                            if !drill.tags.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(drill.tags, id: \.self) { tag in
-                                            Text(tag)
-                                                .font(.caption.weight(.medium))
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 6)
-                                                .background(Color(uiColor: .tertiarySystemBackground), in: Capsule())
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     DrillDetailCard(title: "Description") {
-                        if drill.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Aucune description renseignee.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(drill.description)
-                                .font(.body)
-                                .textSelection(.enabled)
-                        }
+                        Text(drill.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? "Aucune description." : drill.description)
+                            .font(.body)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
 
-                    DrillDetailCard(title: "Diagramme") {
-                        if let diagram = viewModel.diagram {
-                            DiagramPlayerView(data: diagram.data, minHeight: 300)
-                                .padding(.bottom, 4)
+                    diagramSection(drill)
 
-                            HStack(spacing: 10) {
-                                Button("Agrandir") {
-                                    isViewerPresented = true
-                                }
-                                .buttonStyle(.bordered)
-
-                                if teamScopedWritable {
-                                    Button("Modifier") {
-                                        editorData = diagram.data
-                                        isEditorPresented = true
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                }
-                            }
-                        } else {
-                            Text("Aucun diagramme disponible.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-
-                            if teamScopedWritable {
-                                Button("Creer un diagramme") {
-                                    editorData = .empty
-                                    isEditorPresented = true
-                                }
-                                .buttonStyle(.borderedProminent)
-                            }
-                        }
-
-                        if teamScopedWritable {
-                            HStack(spacing: 10) {
-                                Button {
-                                    Task {
-                                        await viewModel.generateDiagram(
-                                            drillID: drillID,
-                                            trainingDrillID: trainingDrillID,
-                                            objective: drill.description
-                                        )
-                                    }
-                                } label: {
-                                    if viewModel.isGeneratingDiagram {
-                                        ProgressView()
-                                            .frame(maxWidth: .infinity)
-                                    } else {
-                                        Label("Generer avec IA", systemImage: "sparkles")
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(viewModel.isGeneratingDiagram)
-                            }
-                            .padding(.top, 2)
-                        }
-                    }
-
-                    DrillDetailCard(title: "Materiel") {
-                        let materials = viewModel.diagram?.data.materialSummary() ?? []
-                        if materials.isEmpty {
-                            Text("Le materiel sera derive automatiquement du diagramme.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 8) {
+                    let materials = viewModel.diagram?.data.materialSummary() ?? []
+                    if !materials.isEmpty {
+                        DrillDetailCard(title: "Matériel") {
+                            VStack(alignment: .leading, spacing: 10) {
                                 ForEach(materials, id: \.self) { material in
-                                    Label(material, systemImage: "checkmark.circle.fill")
-                                        .foregroundStyle(.secondary)
+                                    Label(material, systemImage: "checkmark.circle")
                                 }
                             }
+                            .font(.subheadline)
                         }
+                    }
+                } else if viewModel.isLoading {
+                    ProgressView("Chargement de l’exercice…")
+                        .frame(maxWidth: .infinity, minHeight: 220)
+                } else if let message = viewModel.loadErrorMessage {
+                    loadingError(title: "Impossible de charger l’exercice", message: message) {
+                        await viewModel.loadDrill(drillID: drillID)
                     }
                 }
             }
-            .padding(.vertical, 20)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 24)
         }
-        .padding(.horizontal, 16)
-        .navigationTitle(viewModel.drill?.title ?? "Exercice")
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Exercice")
         .navigationBarTitleDisplayMode(.inline)
-        .overlay {
-            if viewModel.isLoading && viewModel.drill == nil {
-                ProgressView("Chargement")
-            }
-        }
         .task(id: taskIdentifier) {
             await viewModel.load(drillID: drillID, trainingDrillID: trainingDrillID)
         }
@@ -321,6 +254,147 @@ struct DrillDetailView: View {
         }
     }
 
+    private func drillHeader(_ drill: Drill) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(drill.title)
+                .font(.title.bold())
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+
+            Text(DrillCategory.label(for: drill.category))
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.12), in: Capsule())
+
+            if !drill.tags.isEmpty {
+                Text(drill.tags.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if teamScopedWritable {
+                Button {
+                    isDrillEditorPresented = true
+                } label: {
+                    Label("Modifier la fiche", systemImage: "square.and.pencil")
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func diagramSection(_ drill: Drill) -> some View {
+        DrillDetailCard(title: "Diagramme") {
+            if let diagram = viewModel.diagram {
+                DiagramPlayerView(data: diagram.data, minHeight: 280)
+                Button {
+                    isViewerPresented = true
+                } label: {
+                    Label("Agrandir", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+
+                if teamScopedWritable {
+                    Button {
+                        editorData = diagram.data
+                        isEditorPresented = true
+                    } label: {
+                        Label("Modifier le diagramme", systemImage: "pencil")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.isGeneratingDiagram)
+                }
+            }
+
+            if viewModel.isLoadingDiagram {
+                ProgressView("Chargement du diagramme…")
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else if let message = viewModel.diagramErrorMessage {
+                loadingError(title: "Le diagramme n’a pas pu être chargé.", message: message) {
+                    await viewModel.loadDiagram(drillID: drillID, trainingDrillID: trainingDrillID)
+                }
+            } else {
+                if viewModel.diagram == nil {
+                    Text("Pas encore de diagramme.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    if teamScopedWritable {
+                        Button {
+                            editorData = .empty
+                            isEditorPresented = true
+                        } label: {
+                            Label("Créer un diagramme", systemImage: "plus")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(viewModel.isGeneratingDiagram)
+                    }
+                }
+
+                if viewModel.diagram?.data.materialSummary().isEmpty == true {
+                    Text("Aucun matériel indiqué dans le diagramme.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if viewModel.diagram == nil {
+                    Text("Ajoutez un diagramme pour identifier le matériel.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if teamScopedWritable {
+                    Button {
+                        Task {
+                            await viewModel.generateDiagram(
+                                drillID: drillID,
+                                trainingDrillID: trainingDrillID,
+                                objective: drill.description
+                            )
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isGeneratingDiagram { ProgressView() }
+                            Label(viewModel.isGeneratingDiagram ? "Création en cours…"
+                                  : viewModel.diagram == nil ? "Créer avec l’IA" : "Générer une nouvelle proposition",
+                                  systemImage: "sparkles")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(viewModel.isGeneratingDiagram)
+                }
+            }
+        }
+    }
+
+    private func loadingError(title: String, message: String, retry: @escaping () async -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: "exclamationmark.circle")
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                Task { await retry() }
+            } label: {
+                Label("Réessayer", systemImage: "arrow.clockwise")
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
     private var taskIdentifier: String {
         "\(drillID)::\(trainingDrillID ?? "catalog")"
     }
@@ -337,8 +411,6 @@ struct DrillDetailView: View {
     private var teamScopedWritable: Bool {
         writable && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
     }
-
-
 }
 
 extension Notification.Name {
