@@ -74,6 +74,9 @@ Restrictions: API contract complexity.
 - The tactical match sheet also resolves lineup and bench names from the detailed match payload, including the nested `player.name` contract used by the backend, so transferred players keep their historical label in formation editing.
 - Match composition reuses the same canonical iOS pitch grid as the roster tactic editor, with a fixed `68:105` pitch ratio and a regular `5 x 9` lattice across the playable surface so iPhone and iPad renderings stay consistent.
 - Match list decoding also reuses the backend compatibility field `scorersDetailed` when needed, so existing shared/summary payloads still surface the stored historical scorer name on iOS.
+- Confirmed match deletions are removed locally immediately; stale or failed refreshes cannot restore their IDs during this screen's lifetime.
+- Score and composition edits are saved through the match pager's close button. The pager stays open with drafts intact if any save fails; swipe dismissal is disabled to avoid losing drafts before save completes. Editing is disabled while saving and while match detail is unavailable.
+- Closing the match pager refreshes the parent matchday so saved scores/compositions appear immediately when reopening it.
 - States: loading, editing, persisting, sheet-specific error.
 - Conditions: role/scope authorization.
 - Validations: payload normalization before updates.
@@ -163,6 +166,11 @@ Constraints: backend scope and relation constraints.
 - Permissions: non-admin/coach edit attempts denied.
 - Errors: share endpoint failure.
 - Edge cases: delete matchday with existing matches.
+- Delete a manual match, open a surviving match, change its score/composition, and close. Verify the refreshed matchday and reopening the match show the persisted changes.
+- Fail a score/composition PUT: closing must keep the pager open and preserve changes for retry. Swipe dismissal must not discard drafts.
+- Return success for DELETE then fail summary/list refreshes, or complete an older load afterward: the deleted match must stay absent and surviving matches remain editable.
+
+Run the source-based Swift regression check with `python3 tests/check_matchday_persistence.py` (requires Swift). It exercises the production persistence/delete method bodies with injected API failures.
 
 ## 22. Technical References
 - `izifoot/Features/Planning/MatchdayDetailView.swift`

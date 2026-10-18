@@ -159,6 +159,7 @@ final class MatchdayDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let api: IzifootAPI
+    private var deletedMatchIDs: Set<String> = []
 
     init(matchday: Matchday, api: IzifootAPI? = nil) {
         self.matchday = matchday
@@ -193,7 +194,7 @@ final class MatchdayDetailViewModel: ObservableObject {
                     return fallbackMatches
                 }
                 return summaryMatches
-            }()
+            }().filter { !deletedMatchIDs.contains($0.id) }
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -377,7 +378,7 @@ final class MatchdayDetailViewModel: ObservableObject {
         defer { isUpdatingMatches = false }
 
         do {
-            try await api.deleteMatch(id: id)
+            try await deleteMatchRecord(id: id)
             await reloadMatchesState()
             errorMessage = nil
             return true
@@ -425,7 +426,7 @@ final class MatchdayDetailViewModel: ObservableObject {
                 self.planning = nil
             }
             for match in matches where normalizedRotationKey(for: match) != nil {
-                try await api.deleteMatch(id: match.id)
+                try await deleteMatchRecord(id: match.id)
             }
             await reloadMatchesState()
             errorMessage = nil
@@ -436,9 +437,15 @@ final class MatchdayDetailViewModel: ObservableObject {
         }
     }
 
+    private func deleteMatchRecord(id: String) async throws {
+        try await api.deleteMatch(id: id)
+        deletedMatchIDs.insert(id)
+        matches.removeAll { $0.id == id }
+    }
+
     private func regenerateMatchesFromPlanning(data: PlanningData) async throws {
         for match in matches {
-            try await api.deleteMatch(id: match.id)
+            try await deleteMatchRecord(id: match.id)
         }
 
         let isTournamentCompetition = normalizedCompetitionType == "TOURNOI"
@@ -494,9 +501,9 @@ final class MatchdayDetailViewModel: ObservableObject {
             planning.date.prefix(10) == matchday.date.prefix(10)
         })
         if let summaryMatches = refreshedSummary?.matches, !summaryMatches.isEmpty {
-            matches = summaryMatches
+            matches = summaryMatches.filter { !deletedMatchIDs.contains($0.id) }
         } else if let refreshedMatches = try? await api.allMatches(matchdayID: matchday.id) {
-            matches = refreshedMatches
+            matches = refreshedMatches.filter { !deletedMatchIDs.contains($0.id) }
         }
     }
 
@@ -681,7 +688,9 @@ struct MatchdayDetailView: View {
                 EmptyView()
             }
         }
-        .sheet(item: $selectedMatchDestination) { destination in
+        .sheet(item: $selectedMatchDestination, onDismiss: {
+            Task { await viewModel.load() }
+        }) { destination in
             MatchdayMatchesPagerSheet(
                 initialMatchID: destination.id,
                 matches: orderedMatchesForPager,
@@ -2111,6 +2120,8 @@ private struct MatchdayMatchesPagerSheet: View {
     let onDeleteManualMatch: (String) async -> Bool
 
     @State private var selectedMatchID: String
+    @State private var isDeletingMatch = false
+    @State private var saveFailed = false
     @StateObject private var sheetViewModel: MatchdayMatchesSheetViewModel
 
     init(
@@ -2151,7 +2162,7 @@ private struct MatchdayMatchesPagerSheet: View {
                             matchdayDate: matchdayDate,
                             matchProvider: matchProvider,
                             viewModel: sheetViewModel.viewModel(for: match.id),
-                            onDeleteManualMatch: onDeleteManualMatch
+                            onDeleteManualMatch: deleteMatch
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         .overlay {
@@ -2165,6 +2176,7 @@ private struct MatchdayMatchesPagerSheet: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .disabled(sheetViewModel.isPersisting || isDeletingMatch)
 
                 if matches.count > 1 {
                     HStack(spacing: 8) {
@@ -2184,37 +2196,55 @@ private struct MatchdayMatchesPagerSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         Task {
-                            await sheetViewModel.persistAllChanges()
-                            dismiss()
+                            if await sheetViewModel.persistAllChanges() {
+                                dismiss()
+                            } else {
+                                saveFailed = true
+                            }
                         }
                     } label: {
-                        if sheetViewModel.isPersisting {
+                        if sheetViewModel.isPersisting || isDeletingMatch {
                             ProgressView()
                         } else {
                             Image(systemName: "xmark")
                         }
                     }
-                    .disabled(sheetViewModel.isPersisting)
+                    .disabled(sheetViewModel.isPersisting || isDeletingMatch)
+                    .accessibilityLabel("Enregistrer et fermer")
                 }
             }
         }
         .task {
             await sheetViewModel.loadAll()
         }
-        .onDisappear {
-            Task {
-                await sheetViewModel.persistAllChanges()
-            }
+        .alert("Enregistrement impossible", isPresented: $saveFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Vos modifications sont conservées. Réessayez de fermer cette fenêtre pour les enregistrer.")
         }
         .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(sheetViewModel.isPersisting)
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled()
     }
+
+    private func deleteMatch(id: String) async -> Bool {
+        guard !isDeletingMatch, !sheetViewModel.isPersisting else { return false }
+        isDeletingMatch = true
+        defer { isDeletingMatch = false }
+        guard await onDeleteManualMatch(id) else { return false }
+        sheetViewModel.discardDeletedMatch(id: id)
+        if await sheetViewModel.persistAllChanges() {
+            dismiss()
+        } else {
+            selectedMatchID = matches.first(where: { $0.id != id })?.id ?? selectedMatchID
+            saveFailed = true
+        }
+        return true
+    }
+
 }
 
 private struct MatchdayMatchDetailView: View {
-    @Environment(\.dismiss) private var dismiss
-
     let clubName: String?
     let matchdayDate: String
     let matchProvider: (String) -> MatchLite?
@@ -2241,6 +2271,7 @@ private struct MatchdayMatchDetailView: View {
         Group {
             if let match = resolvedMatch {
                 matchContent(for: match)
+                    .disabled(viewModel.isLoading || viewModel.matchDetail == nil)
             } else {
                 MatchUnavailableStateView()
             }
@@ -2336,7 +2367,6 @@ private struct MatchdayMatchDetailView: View {
         isDeletingManualMatch = false
         guard didDelete else { return }
         viewModel.discardDeletedMatch()
-        dismiss()
     }
 }
 
@@ -2395,16 +2425,24 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
         }
     }
 
-    func persistAllChanges() async {
-        guard !isPersisting else { return }
+    func discardDeletedMatch(id: String) {
+        viewModelsByID.removeValue(forKey: id)?.discardDeletedMatch()
+    }
+
+    func persistAllChanges() async -> Bool {
+        guard !isPersisting else { return false }
         isPersisting = true
         defer { isPersisting = false }
 
+        var didSaveAll = true
         for match in matches {
             if let viewModel = viewModelsByID[match.id] {
-                await viewModel.persistPendingChanges()
+                if !(await viewModel.persistPendingChanges()) {
+                    didSaveAll = false
+                }
             }
         }
+        return didSaveAll
     }
 }
 
@@ -2829,9 +2867,9 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
         hasPendingChanges = true
     }
 
-    func persistPendingChanges() async {
-        guard hasPendingChanges else { return }
-        guard let detail = matchDetail, let matchdayId = detail.matchdayId else { return }
+    func persistPendingChanges() async -> Bool {
+        guard hasPendingChanges else { return true }
+        guard let detail = matchDetail, let matchdayId = detail.matchdayId else { return false }
         isSaving = true
         defer { isSaving = false }
 
@@ -2868,8 +2906,10 @@ private final class MatchdayMatchDetailViewModel: ObservableObject {
             _ = try await api.updateMatch(id: detail.id, payload: payload)
             hasPendingChanges = false
             errorMessage = nil
+            return true
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
         }
     }
 
