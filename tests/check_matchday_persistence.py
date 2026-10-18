@@ -36,6 +36,7 @@ methods = {
     'detail_discard': block(detail_source, 'func discardDeletedMatch()'),
     'all_save': block(sheet_source, 'func persistAllChanges()'),
     'all_discard': block(sheet_source, 'func discardDeletedMatch(id:'),
+    'load_all': block(sheet_source, 'func loadAll(matches:') if 'func loadAll(matches:' in sheet_source else block(sheet_source, 'func loadAll(matches currentMatches:'),
     'delete': block(SOURCE, 'private func deleteMatchRecord(id:'),
     'pager_delete': block(pager_source, 'private func deleteMatch(id:'),
 }
@@ -50,7 +51,9 @@ assert block(SOURCE, 'private func reloadMatchesState()').count('filter { !delet
 swift = r'''
 import Foundation
 PAYLOADS
-struct MatchLite { let id: String }
+struct MatchLite { let id: String; var matchdayId: String? = "plateau" }
+struct MatchdaySummary {}
+struct AttendanceRow {}
 struct MatchTacticPoint { let x: Double; let y: Double }
 struct Team { let side: String; let score: Int }
 struct Player { let playerId: String }
@@ -73,6 +76,10 @@ final class API {
     var failing: Set<String> = []
     var updated: [(String, MatchPayload)] = []
     var deleted: [String] = []
+    var blockedLoadID: String?
+    var blockedLoad: CheckedContinuation<Void, Never>?
+    func matchdaySummary(id: String, includeAllPlayers: Bool) async throws -> MatchdaySummary { MatchdaySummary() }
+    func allAttendanceBySession(type: String, sessionID: String) async throws -> [AttendanceRow] { [] }
     func updateMatch(id: String, payload: MatchPayload) async throws -> Int {
         if failing.contains(id) { throw Failure() }
         updated.append((id, payload)); return 1
@@ -95,7 +102,17 @@ final class Detail {
     var selectedPreset = "balanced"
     var tacticPoints: [String: MatchTacticPoint] = [:]
     var selectedComposition: String?
-    init(_ id: String, _ api: API) { self.api = api; self.matchDetail = MatchDetail(id: id) }
+    var loadCount = 0
+    let matchID: String
+    func load(sharedPlayers: [Player], summary: MatchdaySummary?, attendance: [AttendanceRow]?) async {
+        loadCount += 1
+        if api.blockedLoadID == matchID {
+            await withCheckedContinuation { api.blockedLoad = $0 }
+        }
+        matchDetail = MatchDetail(id: matchID)
+        hasPendingChanges = false
+    }
+    init(_ id: String, _ api: API) { self.api = api; self.matchID = id; self.matchDetail = MatchDetail(id: id) }
     DETAIL_SAVE
     DETAIL_DISCARD
 }
@@ -103,9 +120,20 @@ final class Sheet {
     var isPersisting = false
     var matches: [MatchLite]
     var viewModelsByID: [String: Detail]
+    var loadingTasksByID: [String: Task<Void, Never>] = [:]
+    let sharedPlayers: [Player] = []
+    let api: API
+    func viewModel(for id: String) -> Detail {
+        if let existing = viewModelsByID[id] { return existing }
+        let detail = Detail(id, api); detail.matchDetail = nil; detail.hasPendingChanges = false
+        viewModelsByID[id] = detail
+        return detail
+    }
     init(_ models: [String: Detail]) {
         viewModelsByID = models; matches = models.keys.sorted().map { MatchLite(id: $0) }
+        api = models.values.first?.api ?? API()
     }
+    LOAD_ALL
     ALL_SAVE
     ALL_DISCARD
 }
@@ -180,6 +208,38 @@ final class Pager {
         cleanPager.isDeletingMatch = true
         let duplicate = await cleanPager.remove("deleted")
         precondition(!duplicate)
+        // Reproduce three manual pages, interruption while later pages load,
+        // deletion of the first page, then reopening the surviving pages.
+        let lifecycleAPI = API()
+        let one = Detail("one", lifecycleAPI), two = Detail("two", lifecycleAPI), three = Detail("three", lifecycleAPI)
+        for detail in [one, two, three] { detail.matchDetail = nil; detail.hasPendingChanges = false }
+        let lifecycle = Sheet(["one": one, "two": two, "three": three])
+        lifecycleAPI.blockedLoadID = "two"
+        let firstLoad = Task { await lifecycle.loadAll(matches: ["one", "two", "three"].map { MatchLite(id: $0) }) }
+        while lifecycleAPI.blockedLoad == nil { await Task.yield() }
+        firstLoad.cancel()
+        lifecycle.discardDeletedMatch(id: "one")
+        lifecycleAPI.blockedLoad?.resume(); lifecycleAPI.blockedLoad = nil
+        await firstLoad.value
+        precondition(one.matchDetail == nil && three.matchDetail == nil)
+        // Existing loaded drafts must not be reset while missing pages retry.
+        two.hasPendingChanges = true
+        await lifecycle.loadAll(matches: ["two", "three"].map { MatchLite(id: $0) })
+        precondition(two.loadCount == 1 && two.hasPendingChanges)
+        precondition(three.loadCount == 1 && three.matchDetail != nil)
+        three.hasPendingChanges = true
+        let afterDeletionSave = await lifecycle.persistAllChanges()
+        precondition(afterDeletionSave)
+        precondition(Set(lifecycleAPI.updated.map(\.0)) == ["two", "three"])
+        precondition(!lifecycleAPI.updated.contains { $0.0 == "one" })
+        // A retained sheet must also load and save a newly displayed ID.
+        await lifecycle.loadAll(matches: [MatchLite(id: "three"), MatchLite(id: "four")])
+        let four = lifecycle.viewModel(for: "four")
+        precondition(four.matchDetail != nil && lifecycle.viewModelsByID["two"] == nil)
+        four.hasPendingChanges = true
+        let newPageSave = await lifecycle.persistAllChanges()
+        precondition(newPageSave && lifecycleAPI.updated.last!.0 == "four")
+        print("PASS: three-match interrupted load/delete/reopen, active-ID synchronization, draft preservation")
         print("PASS: failed-save retention, retry score/lineup payloads, sibling save, deleted-ID exclusion, deletion failure, protected close, and refresh integration")
     }
 }

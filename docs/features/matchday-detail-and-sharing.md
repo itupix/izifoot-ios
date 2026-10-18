@@ -75,6 +75,7 @@ Restrictions: API contract complexity.
 - Match composition reuses the same canonical iOS pitch grid as the roster tactic editor, with a fixed `68:105` pitch ratio and a regular `5 x 9` lattice across the playable surface so iPhone and iPad renderings stay consistent.
 - Match list decoding also reuses the backend compatibility field `scorersDetailed` when needed, so existing shared/summary payloads still surface the stored historical scorer name on iOS.
 - Confirmed match deletions are removed locally immediately; stale or failed refreshes cannot restore their IDs during this screen's lifetime.
+- Match pager loading follows the current displayed IDs, retries incomplete loads after interruption, and preserves already loaded score/composition drafts. Removed IDs leave the active save list; newly displayed IDs are loaded and saved.
 - Score and composition edits are saved through the match pager's close button. The pager stays open with drafts intact if any save fails; swipe dismissal is disabled to avoid losing drafts before save completes. Editing is disabled while saving and while match detail is unavailable.
 - Closing the match pager refreshes the parent matchday so saved scores/compositions appear immediately when reopening it.
 - States: loading, editing, persisting, sheet-specific error.

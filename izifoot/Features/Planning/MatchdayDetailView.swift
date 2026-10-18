@@ -705,6 +705,7 @@ struct MatchdayDetailView: View {
                     await viewModel.deleteMatch(id: matchID)
                 }
             )
+            .id(destination.id)
         }
     }
 
@@ -2214,8 +2215,8 @@ private struct MatchdayMatchesPagerSheet: View {
                 }
             }
         }
-        .task {
-            await sheetViewModel.loadAll()
+        .task(id: matches.map(\.id)) {
+            await sheetViewModel.loadAll(matches: matches)
         }
         .alert("Enregistrement impossible", isPresented: $saveFailed) {
             Button("OK", role: .cancel) {}
@@ -2374,12 +2375,12 @@ private struct MatchdayMatchDetailView: View {
 private final class MatchdayMatchesSheetViewModel: ObservableObject {
     @Published private(set) var isPersisting = false
 
-    private let matches: [MatchLite]
+    private var matches: [MatchLite]
     private let fallbackPlayerNamesByID: [String: String]
     private let sharedPlayers: [Player]
     private let api: IzifootAPI
     private var viewModelsByID: [String: MatchdayMatchDetailViewModel] = [:]
-    private var hasLoaded = false
+    private var loadingTasksByID: [String: Task<Void, Never>] = [:]
 
     init(matches: [MatchLite], fallbackPlayerNamesByID: [String: String], sharedPlayers: [Player], api: IzifootAPI? = nil) {
         self.matches = matches
@@ -2402,9 +2403,12 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
         return viewModel
     }
 
-    func loadAll() async {
-        guard !hasLoaded else { return }
-        hasLoaded = true
+    func loadAll(matches currentMatches: [MatchLite]) async {
+        matches = currentMatches
+        let activeIDs = Set(currentMatches.map(\.id))
+        for id in Array(viewModelsByID.keys) where !activeIDs.contains(id) {
+            discardDeletedMatch(id: id)
+        }
 
         let matchdayID = matches.compactMap(\.matchdayId).first
         async let summaryTask: MatchdaySummary? = {
@@ -2419,13 +2423,31 @@ private final class MatchdayMatchesSheetViewModel: ObservableObject {
         let summary = await summaryTask
         let attendance = await attendanceTask
 
-        for match in matches {
+        guard !Task.isCancelled else { return }
+        for match in currentMatches {
+            guard matches.contains(where: { $0.id == match.id }) else { continue }
             let viewModel = viewModel(for: match.id)
-            await viewModel.load(sharedPlayers: sharedPlayers, summary: summary, attendance: attendance)
+            // Never reset a loaded composition or an unsaved score when pages change.
+            guard viewModel.matchDetail == nil else { continue }
+            let loadingTask: Task<Void, Never>
+            if let existing = loadingTasksByID[match.id] {
+                loadingTask = existing
+            } else {
+                let sharedPlayers = self.sharedPlayers
+                loadingTask = Task {
+                    await viewModel.load(sharedPlayers: sharedPlayers, summary: summary, attendance: attendance)
+                }
+                loadingTasksByID[match.id] = loadingTask
+            }
+            await loadingTask.value
+            loadingTasksByID[match.id] = nil
+            guard !Task.isCancelled else { return }
         }
     }
 
     func discardDeletedMatch(id: String) {
+        matches.removeAll { $0.id == id }
+        loadingTasksByID.removeValue(forKey: id)?.cancel()
         viewModelsByID.removeValue(forKey: id)?.discardDeletedMatch()
     }
 
