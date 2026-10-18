@@ -83,12 +83,11 @@ struct DiagramPlayerView: View {
             }
             .frame(height: 8)
 
-            HStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 10)], spacing: 10) {
                 controlButton(systemImage: "backward.end.fill", action: restart, disabled: activeIndex == 0 && !isPlaying)
                 controlButton(systemImage: "backward.fill", action: previousStep, disabled: activeIndex == 0)
                 controlButton(systemImage: isPlaying ? "pause.fill" : "play.fill", action: togglePlayback, disabled: orientedFrames.count <= 1)
                 controlButton(systemImage: "forward.fill", action: nextStep, disabled: activeIndex >= orientedFrames.count - 1)
-                Spacer()
                 controlButton(systemImage: "rotate.right.fill", action: rotateClockwise, disabled: false)
             }
         }

@@ -21,3 +21,5 @@ The content header shows the complete multiline exercise title, a compact catego
 Diagram actions distinguish **Agrandir**, **Modifier le diagramme**, **Créer un diagramme**, and the secondary **Créer avec l’IA** / **Générer une nouvelle proposition**. AI generation creates an additional diagram, so its label does not promise replacement. Controls keep a minimum 44-point touch target, use system text sizes and adaptive system colors, and the content width is capped on iPad.
 
 Exercise and diagram requests load independently. A diagram failure leaves the exercise readable and shows a diagram-specific retry state rather than the empty-diagram creation flow. Exercise failures also show an inline retry. Existing edit permissions, canonical save updates and training-specific diagram context are unchanged.
+
+The diagram playback controls wrap into an adaptive grid on narrow screens, preventing their intrinsic width from forcing the entire detail beyond its horizontal margins. Detail cards use the grouped secondary background for clear light/dark contrast.
