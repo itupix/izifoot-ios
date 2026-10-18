@@ -39,6 +39,11 @@ final class DrillDetailViewModel: ObservableObject {
         }
     }
 
+    func applyUpdatedDrill(_ updated: Drill) {
+        guard updated.id == drill?.id else { return }
+        drill = updated
+    }
+
     func saveDiagram(_ data: DiagramData, drillID: String, trainingDrillID: String?) async -> Bool {
         isSavingDiagram = true
         defer { isSavingDiagram = false }
@@ -88,6 +93,7 @@ struct DrillDetailView: View {
     var trainingDrillID: String? = nil
 
     @StateObject private var viewModel = DrillDetailViewModel()
+    @State private var isDrillEditorPresented = false
     @State private var isEditorPresented = false
     @State private var isViewerPresented = false
     @State private var editorData = DiagramData.empty
@@ -97,13 +103,21 @@ struct DrillDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if writable && requiresSelection && teamScopeStore.selectedTeamID == nil {
                     DrillDetailCard {
-                        Text("Selectionnez une equipe active pour modifier le diagramme de cet exercice.")
+                        Text("Sélectionnez une équipe active pour modifier la fiche ou le diagramme de cet exercice.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 if let drill = viewModel.drill {
+                    if teamScopedWritable {
+                        Button {
+                            isDrillEditorPresented = true
+                        } label: {
+                            Label("Modifier la fiche", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(.bordered)
+                    }
                     DrillDetailCard {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(DrillCategory.label(for: drill.category))
@@ -235,6 +249,19 @@ struct DrillDetailView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .drillDidUpdate)) { notification in
+            if let updated = notification.object as? Drill {
+                viewModel.applyUpdatedDrill(updated)
+            }
+        }
+        .sheet(isPresented: $isDrillEditorPresented) {
+            if let drill = viewModel.drill {
+                EditDrillSheet(drill: drill) { updated in
+                    viewModel.applyUpdatedDrill(updated)
+                    isDrillEditorPresented = false
+                }
+            }
+        }
         .fullScreenCover(isPresented: $isEditorPresented) {
             NavigationStack {
                 DiagramEditorView(data: $editorData)
@@ -312,6 +339,112 @@ struct DrillDetailView: View {
     }
 
 
+}
+
+extension Notification.Name {
+    static let drillDidUpdate = Notification.Name("izifoot.drillDidUpdate")
+}
+
+@MainActor
+final class DrillEditViewModel: ObservableObject {
+    @Published var title: String
+    @Published var description: String
+    @Published var category: String
+    @Published private(set) var isSaving = false
+    @Published private(set) var errorMessage: String?
+    private let persist: (String, String, String) async throws -> Drill
+
+    init(drill: Drill, persist: @escaping (String, String, String) async throws -> Drill) {
+        title = drill.title
+        description = drill.description
+        category = drill.category
+        self.persist = persist
+    }
+
+    var validationError: String? {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanTitle.isEmpty || cleanTitle.utf16.count > 100 { return "Le titre doit contenir entre 1 et 100 caractères." }
+        if cleanDescription.isEmpty || cleanDescription.utf16.count > 2000 { return "La description doit contenir entre 1 et 2 000 caractères." }
+        if !DrillCategory.values.contains(category) { return "Choisissez une catégorie valide." }
+        return nil
+    }
+
+    func save() async -> Drill? {
+        guard !isSaving else { return nil }
+        if let validationError {
+            errorMessage = validationError
+            return nil
+        }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            return try await persist(
+                title.trimmingCharacters(in: .whitespacesAndNewlines),
+                description.trimmingCharacters(in: .whitespacesAndNewlines),
+                category
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+}
+
+private struct EditDrillSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel: DrillEditViewModel
+    let onSaved: (Drill) -> Void
+
+    init(drill: Drill, onSaved: @escaping (Drill) -> Void) {
+        self.onSaved = onSaved
+        _viewModel = StateObject(wrappedValue: DrillEditViewModel(drill: drill) { title, description, category in
+            let updated = try await IzifootAPI().updateDrill(id: drill.id, title: title, description: description, category: category)
+            await PersistentDataCache.shared.removeAll(withKeySuffix: ":drill-contract-v2")
+            NotificationCenter.default.post(name: .drillDidUpdate, object: updated)
+            return updated
+        })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Fiche de l’exercice") {
+                    TextField("Titre", text: $viewModel.title)
+                    TextField("Description", text: $viewModel.description, axis: .vertical)
+                        .lineLimit(5, reservesSpace: true)
+                    Picker("Catégorie", selection: $viewModel.category) {
+                        ForEach(DrillCategory.values, id: \.self) { category in
+                            Text(DrillCategory.label(for: category)).tag(category)
+                        }
+                    }
+                }
+                .disabled(viewModel.isSaving)
+                if let message = viewModel.errorMessage ?? viewModel.validationError {
+                    Section { Text(message).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Modifier la fiche")
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(viewModel.isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") { dismiss() }.disabled(viewModel.isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task {
+                            if let updated = await viewModel.save() { onSaved(updated) }
+                        }
+                    } label: {
+                        if viewModel.isSaving { ProgressView() } else { Text("Enregistrer") }
+                    }
+                    .disabled(viewModel.isSaving || viewModel.validationError != nil)
+                }
+            }
+        }
+    }
 }
 
 private struct DrillDetailCard<Content: View>: View {

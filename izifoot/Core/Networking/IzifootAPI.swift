@@ -964,6 +964,19 @@ final class IzifootAPI {
         )
     }
 
+    func updateDrill(id: String, title: String, description: String, category: String) async throws -> Drill {
+        struct UpdateDrillPayload: Encodable {
+            let title: String
+            let description: String
+            let category: String
+        }
+        return try await client.put(
+            APIRoutes.Drills.byID(id),
+            body: UpdateDrillPayload(title: title, description: description, category: category),
+            responseType: Drill.self
+        )
+    }
+
     func drillDiagrams(drillID: String) async throws -> [Diagram] {
         try await client.get(
             APIRoutes.Drills.diagrams(drillID),

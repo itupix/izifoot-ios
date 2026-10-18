@@ -57,6 +57,11 @@ final class TrainingDetailViewModel: ObservableObject {
         self.api = api ?? IzifootAPI()
     }
 
+    func applyUpdatedDrill(_ updated: Drill) {
+        drillCatalog = drillCatalog.map { $0.id == updated.id ? updated : $0 }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
     func load() async {
         isLoading = true
         defer { isLoading = false }
@@ -547,6 +552,9 @@ struct TrainingDetailView: View {
             Button("Annuler", role: .cancel) {}
         } message: {
             Text("Cette action est définitive.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .drillDidUpdate)) { notification in
+            if let updated = notification.object as? Drill { viewModel.applyUpdatedDrill(updated) }
         }
         .task(id: pendingDrillIDToAdd) {
             guard let pendingDrillIDToAdd else { return }

@@ -31,6 +31,14 @@ actor PersistentDataCache {
         try? FileManager.default.removeItem(at: fileURL(forKey: key))
     }
 
+    func removeAll(withKeySuffix suffix: String) {
+        let fileSuffix = sanitizedKey(suffix) + ".json"
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else { return }
+        for file in files where file.lastPathComponent.hasSuffix(fileSuffix) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     private func fileURL(forKey key: String) -> URL {
         let safe = sanitizedKey(key)
         return directoryURL.appendingPathComponent("\(safe).json", isDirectory: false)

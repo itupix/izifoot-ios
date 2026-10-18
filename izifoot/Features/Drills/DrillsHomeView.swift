@@ -166,6 +166,13 @@ final class DrillsHomeViewModel: ObservableObject {
         }
     }
 
+    func applyUpdatedDrill(_ updated: Drill) async {
+        drills = drills.map { $0.id == updated.id ? updated : $0 }
+        if let lastCacheKey {
+            await persistCache(forKey: lastCacheKey + ":drill-contract-v2")
+        }
+    }
+
     private func filteredDrills(_ drills: [Drill], teamID: String?) -> [Drill] {
         guard let teamID else { return drills }
         return drills.filter { drill in
@@ -310,6 +317,10 @@ struct DrillsHomeView: View {
             }
             .task(id: taskReloadKey) {
                 await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .drillDidUpdate)) { notification in
+                guard let updated = notification.object as? Drill else { return }
+                Task { await viewModel.applyUpdatedDrill(updated) }
             }
             .sheet(isPresented: $isSheetPresented) {
                 CreateDrillSheet(defaultTags: viewModel.tags) { payload in
