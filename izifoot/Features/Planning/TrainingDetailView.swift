@@ -1248,7 +1248,7 @@ private struct DrillSelectionSheet: View {
 
     @ViewBuilder
     private func drillRow(for drill: Drill) -> some View {
-        let subtitle = [drill.category, "\(drill.duration) min", drill.players].joined(separator: " • ")
+        let subtitle = DrillCategory.label(for: drill.category)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(drill.title)

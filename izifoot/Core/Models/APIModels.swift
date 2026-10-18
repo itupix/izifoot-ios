@@ -701,12 +701,20 @@ extension Matchday {
     }
 }
 
+enum DrillCategory: String, CaseIterable {
+    case collectif, technique, jeu, autres
+
+    static var values: [String] { allCases.map(\.rawValue) }
+
+    static func label(for value: String) -> String {
+        (DrillCategory(rawValue: value) ?? .autres).rawValue.capitalized
+    }
+}
+
 struct Drill: Codable, Identifiable {
     let id: String
     let title: String
     let category: String
-    let duration: Int
-    let players: String
     let description: String
     let descriptionHtml: String?
     let tags: [String]
@@ -728,7 +736,7 @@ struct DrillsResponse: Codable {
 
     init(items: [Drill], categories: [String], tags: [String], pagination: PaginationMeta) {
         self.items = items
-        self.categories = categories
+        self.categories = DrillCategory.values
         self.tags = tags
         self.pagination = pagination
     }
@@ -737,7 +745,7 @@ struct DrillsResponse: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let items = (try? container.decode([Drill].self, forKey: .items)) ?? []
         self.items = items
-        self.categories = (try? container.decode([String].self, forKey: .categories)) ?? []
+        self.categories = DrillCategory.values
         self.tags = (try? container.decode([String].self, forKey: .tags)) ?? []
         self.pagination = (try? container.decode(PaginationMeta.self, forKey: .pagination))
             ?? PaginationMeta(limit: items.count, offset: 0, returned: items.count)

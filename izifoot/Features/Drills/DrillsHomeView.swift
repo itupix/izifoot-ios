@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class DrillsHomeViewModel: ObservableObject {
     @Published private(set) var drills: [Drill] = []
-    @Published private(set) var categories: [String] = []
+    @Published private(set) var categories: [String] = DrillCategory.values
     @Published private(set) var tags: [String] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
@@ -39,7 +39,7 @@ final class DrillsHomeViewModel: ObservableObject {
         if lastCacheKey != cacheKey {
             lastCacheKey = cacheKey
             drills = []
-            categories = []
+            categories = DrillCategory.values
             tags = []
             nextOffset = 0
             canLoadMore = true
@@ -51,9 +51,9 @@ final class DrillsHomeViewModel: ObservableObject {
 
         var hasCachedData = false
         if !forceRefresh,
-           let cached = await PersistentDataCache.shared.read(DrillsHomeCachePayload.self, forKey: cacheKey) {
+           let cached = await PersistentDataCache.shared.read(DrillsHomeCachePayload.self, forKey: cacheKey + ":drill-contract-v2") {
             drills = filteredDrills(cached.drills, teamID: normalizedScopedTeamID)
-            categories = cached.categories
+            categories = DrillCategory.values
             tags = cached.tags
             nextOffset = cached.nextOffset
             canLoadMore = cached.canLoadMore && normalizedScopedTeamID == nil
@@ -65,19 +65,19 @@ final class DrillsHomeViewModel: ObservableObject {
             if let normalizedScopedTeamID {
                 let response = try await api.allDrills()
                 drills = filteredDrills(response.items, teamID: normalizedScopedTeamID)
-                categories = response.categories
+                categories = DrillCategory.values
                 tags = response.tags
                 nextOffset = 0
                 canLoadMore = false
             } else {
                 let response = try await api.drills(limit: pageSize, offset: 0)
                 drills = response.items
-                categories = response.categories
+                categories = DrillCategory.values
                 tags = response.tags
                 nextOffset = response.pagination.offset + response.pagination.returned
                 canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             }
-            await persistCache(forKey: cacheKey)
+            await persistCache(forKey: cacheKey + ":drill-contract-v2")
             errorMessage = nil
         } catch {
             if !error.isCancellationError, !hasCachedData { errorMessage = error.localizedDescription }
@@ -93,11 +93,11 @@ final class DrillsHomeViewModel: ObservableObject {
         do {
             let response = try await api.drills(limit: pageSize, offset: nextOffset)
             drills.append(contentsOf: response.items)
-            categories = Array(Set(categories).union(response.categories)).sorted()
+            categories = DrillCategory.values
             tags = Array(Set(tags).union(response.tags)).sorted()
             nextOffset = response.pagination.offset + response.pagination.returned
             canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
-            await persistCache(forKey: cacheKey)
+            await persistCache(forKey: cacheKey + ":drill-contract-v2")
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -107,8 +107,6 @@ final class DrillsHomeViewModel: ObservableObject {
     func createDrill(
         title: String,
         category: String,
-        duration: Int,
-        players: String,
         description: String,
         tags: [String],
         teamID: String? = nil,
@@ -118,8 +116,6 @@ final class DrillsHomeViewModel: ObservableObject {
             let created = try await api.createDrill(
                 title: title,
                 category: category,
-                duration: duration,
-                players: players,
                 description: description,
                 tags: tags
             )
@@ -134,7 +130,7 @@ final class DrillsHomeViewModel: ObservableObject {
             } else {
                 drills.insert(created, at: 0)
             }
-            await persistCache(forKey: cacheKey)
+            await persistCache(forKey: cacheKey + ":drill-contract-v2")
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
@@ -150,7 +146,7 @@ final class DrillsHomeViewModel: ObservableObject {
             if let normalizedScopedTeamID = normalizedTeamID(teamID) {
                 let response = try await api.allDrills()
                 drills = filteredDrills(response.items, teamID: normalizedScopedTeamID)
-                categories = response.categories
+                categories = DrillCategory.values
                 tags = response.tags
                 nextOffset = 0
                 canLoadMore = false
@@ -158,12 +154,12 @@ final class DrillsHomeViewModel: ObservableObject {
                 let reloadLimit = max(nextOffset, pageSize)
                 let response = try await api.drills(limit: reloadLimit, offset: 0)
                 drills = response.items
-                categories = response.categories
+                categories = DrillCategory.values
                 tags = response.tags
                 nextOffset = response.pagination.offset + response.pagination.returned
                 canLoadMore = response.pagination.returned >= response.pagination.limit && response.pagination.returned > 0
             }
-            await persistCache(forKey: cacheKey)
+            await persistCache(forKey: cacheKey + ":drill-contract-v2")
             errorMessage = nil
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -192,7 +188,7 @@ final class DrillsHomeViewModel: ObservableObject {
         return teamID
     }
 
-    private func persistCache(forKey cacheKey: String) async {
+    private func persistCache(forKey versionedCacheKey: String) async {
         await PersistentDataCache.shared.write(
             DrillsHomeCachePayload(
                 drills: drills,
@@ -201,7 +197,7 @@ final class DrillsHomeViewModel: ObservableObject {
                 nextOffset: nextOffset,
                 canLoadMore: canLoadMore
             ),
-            forKey: cacheKey
+            forKey: versionedCacheKey
         )
     }
 }
@@ -244,7 +240,7 @@ struct DrillsHomeView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(drill.title)
                                     .font(.headline)
-                                Text(drill.category)
+                                Text(DrillCategory.label(for: drill.category))
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -316,12 +312,10 @@ struct DrillsHomeView: View {
                 await viewModel.load(cacheKey: dataCacheKey, teamID: teamScopeStore.selectedTeamID)
             }
             .sheet(isPresented: $isSheetPresented) {
-                CreateDrillSheet(defaultCategories: viewModel.categories, defaultTags: viewModel.tags) { payload in
+                CreateDrillSheet(defaultTags: viewModel.tags) { payload in
                     await viewModel.createDrill(
                         title: payload.title,
                         category: payload.category,
-                        duration: payload.duration,
-                        players: payload.players,
                         description: payload.description,
                         tags: payload.tags,
                         teamID: teamScopeStore.selectedTeamID,
@@ -405,8 +399,6 @@ struct DrillsHomeView: View {
 struct CreateDrillPayload {
     let title: String
     let category: String
-    let duration: Int
-    let players: String
     let description: String
     let tags: [String]
 }
@@ -414,14 +406,11 @@ struct CreateDrillPayload {
 struct CreateDrillSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let defaultCategories: [String]
     let defaultTags: [String]
     let onSubmit: (CreateDrillPayload) async -> Void
 
     @State private var title = ""
-    @State private var category = ""
-    @State private var duration = 20
-    @State private var players = "Tous"
+    @State private var category = DrillCategory.autres.rawValue
     @State private var description = ""
     @State private var tagsCSV = ""
 
@@ -430,15 +419,10 @@ struct CreateDrillSheet: View {
             Form {
                 TextField("Titre", text: $title)
 
-                if !defaultCategories.isEmpty {
-                    Picker("Catégorie", selection: $category) {
-                        Text("Choisir").tag("")
-                        ForEach(defaultCategories, id: \.self) { category in
-                            Text(category).tag(category)
-                        }
+                Picker("Catégorie", selection: $category) {
+                    ForEach(DrillCategory.values, id: \.self) { category in
+                        Text(DrillCategory.label(for: category)).tag(category)
                     }
-                } else {
-                    TextField("Catégorie", text: $category)
                 }
 
                 TextField("Description", text: $description, axis: .vertical)
@@ -461,8 +445,6 @@ struct CreateDrillSheet: View {
                                 CreateDrillPayload(
                                     title: title,
                                     category: category,
-                                    duration: duration,
-                                    players: players,
                                     description: description,
                                     tags: tags
                                 )

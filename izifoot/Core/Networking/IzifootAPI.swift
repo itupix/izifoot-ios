@@ -942,16 +942,12 @@ final class IzifootAPI {
     func createDrill(
         title: String,
         category: String,
-        duration: Int,
-        players: String,
         description: String,
         tags: [String]
     ) async throws -> Drill {
         struct CreateDrillPayload: Encodable {
             let title: String
             let category: String
-            let duration: Int
-            let players: String
             let description: String
             let tags: [String]
         }
@@ -961,8 +957,6 @@ final class IzifootAPI {
             body: CreateDrillPayload(
                 title: title,
                 category: category,
-                duration: duration,
-                players: players,
                 description: description,
                 tags: tags
             ),

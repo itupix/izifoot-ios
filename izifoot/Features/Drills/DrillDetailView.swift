@@ -106,14 +106,9 @@ struct DrillDetailView: View {
                 if let drill = viewModel.drill {
                     DrillDetailCard {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(drill.category)
+                            Text(DrillCategory.label(for: drill.category))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.secondary)
-
-                            HStack(spacing: 12) {
-                                drillStatChip(title: "Duree", value: "\(drill.duration) min")
-                                drillStatChip(title: "Joueurs", value: drill.players)
-                            }
 
                             if !drill.tags.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
@@ -316,18 +311,7 @@ struct DrillDetailView: View {
         writable && (!requiresSelection || teamScopeStore.selectedTeamID != nil)
     }
 
-    private func drillStatChip(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
+
 }
 
 private struct DrillDetailCard<Content: View>: View {
