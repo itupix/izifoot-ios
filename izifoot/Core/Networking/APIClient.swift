@@ -107,6 +107,10 @@ final class APIClient: APIClientProtocol {
         request.httpMethod = method
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if T.self == Data.self {
+            request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
 
         if let token = tokenStore.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -137,6 +141,15 @@ final class APIClient: APIClientProtocol {
                 }
                 let message = Self.parseMessage(from: data) ?? "HTTP \(httpResponse.statusCode)"
                 throw APIError.server(status: httpResponse.statusCode, message: message)
+            }
+
+            if T.self == Data.self {
+                guard httpResponse.mimeType?.lowercased() == "application/pdf",
+                      data.starts(with: Data("%PDF-".utf8)),
+                      let binary = data as? T else {
+                    throw APIError.server(status: httpResponse.statusCode, message: "Le PDF reçu est invalide. Veuillez réessayer.")
+                }
+                return binary
             }
 
             do {

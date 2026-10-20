@@ -159,3 +159,24 @@ Constraints: scope and relation integrity.
 ## 22. Technical References
 - `izifoot/Features/Planning/TrainingDetailView.swift`
 - `izifoot/Core/Networking/IzifootAPI.swift`
+
+## Training summary PDF
+
+Coaches and direction can use “Générer le résumé de la séance” near the date, including for cancelled sessions. The button displays “Génération du PDF…” while downloading and is disabled during loading, saves and drill reordering. Editors are modal: dismiss or save them before exporting; the summary always uses saved server data.
+
+- Contract: authenticated `GET /trainings/:id/summary.pdf?timeZone=Europe%2FParis`, no request body. Uses existing Bearer token and active team headers.
+- Success: binary `application/pdf` containing date, hours, actual recorded present players and attached exercises in saved order, each with full title and description. Attached exercises have no completion flag; attendance intentions are excluded.
+- The downloaded PDF opens the native share sheet (including Save to Files). Temporary files use complete file protection and are removed when sharing closes. Requests bypass the local response cache; server responses are private/no-store.
+- Errors: 400 invalid timezone, 401 expired session (existing sign-in handling), 403 access denied, 404 missing training and 500 generation failure remain recoverable with the same button. Invalid/non-PDF successful responses are rejected.
+- Manual acceptance: export a saved session and cancelled session; verify accented names, exercise order, long descriptions, empty attendance/exercises, Europe/Paris timezone, native sharing/cancel, network failure/retry and restricted-role visibility. Export must remain disabled until saves/reorder complete.
+
+### Verification
+
+The standalone networking check compiles the production API client against a stub URL protocol and verifies PDF bytes, authentication/team headers, cache bypass, malformed payload rejection, generation errors and session expiry:
+
+```sh
+swiftc -module-cache-path /tmp/izifoot-summary-swift-cache izifoot/Core/Networking/APIClient.swift tests/TrainingSummaryDownloadChecks.swift -o /tmp/check-training-summary
+/tmp/check-training-summary
+```
+
+Swift syntax parsing and this networking check pass. Full iOS compilation and simulator share-sheet checks require a full Xcode installation; this environment only has Command Line Tools.

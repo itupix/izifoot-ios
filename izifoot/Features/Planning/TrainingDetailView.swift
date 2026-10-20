@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 private let trainingRoleOptions = [
     "Capitaine",
@@ -42,6 +43,8 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var drillCatalog: [Drill] = []
     @Published private(set) var roleEntries: [TrainingRoleEntry] = []
     @Published private(set) var trainingIntentByPlayerID: [String: String] = [:]
+    @Published private(set) var isGeneratingSummary = false
+    @Published private(set) var summaryURL: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var isSavingAttendance = false
     @Published private(set) var isSavingDrills = false
@@ -55,6 +58,46 @@ final class TrainingDetailViewModel: ObservableObject {
     init(training: Training, api: IzifootAPI? = nil) {
         self.training = training
         self.api = api ?? IzifootAPI()
+    }
+
+    var isPersisting: Bool {
+        isSavingAttendance || isSavingDrills || isSavingRoles || isUpdatingStatus || isDeleting
+    }
+
+    func generateSummary() async {
+        guard !isGeneratingSummary, !isPersisting, !isLoading else { return }
+        isGeneratingSummary = true
+        defer { isGeneratingSummary = false }
+        do {
+            let data = try await api.trainingSummaryPDF(trainingID: training.id)
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "Europe/Paris")
+            let dateLabel = DateFormatters.parseISODate(training.date).map { formatter.string(from: $0) } ?? "entrainement"
+            let url = directory.appendingPathComponent("resume-seance-\(dateLabel).pdf")
+            do {
+                try data.write(to: url, options: [.atomic, .completeFileProtection])
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                throw error
+            }
+            summaryURL = url
+            errorMessage = nil
+        } catch {
+            if !error.isCancellationError {
+                errorMessage = "Impossible de générer le résumé. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearSummary() {
+        if let summaryURL {
+            try? FileManager.default.removeItem(at: summaryURL.deletingLastPathComponent())
+        }
+        summaryURL = nil
     }
 
     func applyUpdatedDrill(_ updated: Drill) {
@@ -322,6 +365,7 @@ struct TrainingDetailView: View {
     @State private var trainingEndTimeDraft = ""
     @State private var trainingEndTimePicker = Date()
     @State private var isTrainingInfoSheetPresented = false
+    @State private var isSummarySharePresented = false
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
@@ -340,6 +384,33 @@ struct TrainingDetailView: View {
                         title: "Entraînement annulé",
                         message: "Cette séance est actuellement marquée comme annulée."
                     )
+                }
+
+                if writable {
+                    Button {
+                        Task {
+                            await viewModel.generateSummary()
+                            isSummarySharePresented = viewModel.summaryURL != nil
+                        }
+                    } label: {
+                        HStack {
+                            if viewModel.isGeneratingSummary {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "doc.text")
+                            }
+                            Text(viewModel.isGeneratingSummary ? "Génération du PDF…" : "Générer le résumé de la séance")
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
+
+                    Text("Le PDF utilise les horaires de Paris.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 PlayersAttendanceCard(
@@ -489,6 +560,13 @@ struct TrainingDetailView: View {
         }
         .refreshable {
             await viewModel.load()
+        }
+        .sheet(isPresented: $isSummarySharePresented, onDismiss: {
+            viewModel.clearSummary()
+        }) {
+            if let url = viewModel.summaryURL {
+                TrainingSummaryShareSheet(url: url)
+            }
         }
         .sheet(isPresented: $isAttendanceSheetPresented) {
             AttendanceSelectionSheet(
@@ -1659,4 +1737,14 @@ private extension View {
             self
         }
     }
+}
+
+private struct TrainingSummaryShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
