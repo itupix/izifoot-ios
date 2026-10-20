@@ -180,3 +180,13 @@ swiftc -module-cache-path /tmp/izifoot-summary-swift-cache izifoot/Core/Networki
 ```
 
 Swift syntax parsing and this networking check pass. Full iOS compilation and simulator share-sheet checks require a full Xcode installation; this environment only has Command Line Tools.
+
+## Training observations
+
+Training Information includes an optional multiline “Observations” editor, using the existing schedule-edit permissions. Saved text appears in full after the schedule in the Information card, including for readers. Empty values display “Aucune observation”. Accents and line breaks remain unchanged; there is no client-side length limit.
+
+`Training.observations` decodes as an optional string, including older responses omitting the key. `createTraining` and `updateTraining` accept optional observations. An omitted update leaves existing observations unchanged; the Information editor always sends its string and sends an empty string to clear the field. Status-only updates omit observations. The existing PDF endpoint includes saved observations without a new query parameter.
+
+The modal editor blocks PDF access while editing. “Enregistrer” awaits success before dismissing. A failed save keeps the draft and displays a retry message. Closing explicitly confirms abandonment of unsaved changes; swipe dismissal is disabled. Saving disables all fields and dismissal. PDF help text states that only saved information is included.
+
+Verification: unsigned Debug iPhoneOS arm64 build passes with Xcode (explicit `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`); Swift syntax parsing passes; decoding checked with absent/null/empty/multiline accented observations. The existing production API client PDF networking check passes (including auth, team scope, PDF validation and errors). Manual device acceptance remains: save/reopen multiline text, clear/reopen, retry failed save, discard confirmation, inspect generated PDF, and compare coach/reader/cancelled-session permissions with schedule editing.

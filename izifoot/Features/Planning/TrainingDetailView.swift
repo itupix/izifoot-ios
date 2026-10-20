@@ -164,7 +164,7 @@ final class TrainingDetailViewModel: ObservableObject {
         }
     }
 
-    func updateTrainingSchedule(startDate: Date, endTime: String?) async {
+    func updateTrainingSchedule(startDate: Date, endTime: String?, observations: String) async -> Bool {
         isUpdatingStatus = true
         defer { isUpdatingStatus = false }
 
@@ -172,11 +172,14 @@ final class TrainingDetailViewModel: ObservableObject {
             training = try await api.updateTraining(
                 id: training.id,
                 dateISO8601: DateFormatters.isoString(from: startDate),
-                endTime: endTime
+                endTime: endTime,
+                observations: observations
             )
             errorMessage = nil
+            return true
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
         }
     }
 
@@ -363,6 +366,7 @@ struct TrainingDetailView: View {
     @State private var bannerToken = UUID()
     @State private var trainingTimeDraft = Date()
     @State private var trainingEndTimeDraft = ""
+    @State private var trainingObservationsDraft = ""
     @State private var trainingEndTimePicker = Date()
     @State private var isTrainingInfoSheetPresented = false
     @State private var isSummarySharePresented = false
@@ -408,7 +412,7 @@ struct TrainingDetailView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
 
-                    Text("Le PDF utilise les horaires de Paris.")
+                    Text("Le PDF reprend les informations enregistrées et utilise les horaires de Paris.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -432,6 +436,7 @@ struct TrainingDetailView: View {
                             trainingTimeDraft = parsed
                         }
                         trainingEndTimeDraft = viewModel.training.endTime ?? ""
+                        trainingObservationsDraft = viewModel.training.observations ?? ""
                         if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
                             trainingEndTimePicker = parsedEndTime
                         }
@@ -594,13 +599,12 @@ struct TrainingDetailView: View {
                 startTime: $trainingTimeDraft,
                 endTime: $trainingEndTimeDraft,
                 endTimePicker: $trainingEndTimePicker,
+                observations: $trainingObservationsDraft,
                 isSaving: viewModel.isUpdatingStatus
-            ) { startTime, endTime in
-                Task {
-                    await viewModel.updateTrainingSchedule(startDate: startTime, endTime: endTime)
-                }
+            ) { startTime, endTime, observations in
+                await viewModel.updateTrainingSchedule(startDate: startTime, endTime: endTime, observations: observations)
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
         }
         .sheet(item: $roleEditor) { editor in
             RoleEditorSheet(
@@ -875,6 +879,14 @@ private struct TrainingInfoCard: View {
             Text("Horaire: \(trainingTimeLabel(training.date, endTime: training.endTime) ?? "—")")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Observations").font(.subheadline.weight(.semibold))
+                Text(training.observations.flatMap { $0.isEmpty ? nil : $0 } ?? "Aucune observation")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -894,10 +906,13 @@ private struct TrainingInfoSheet: View {
     @Binding var startTime: Date
     @Binding var endTime: String
     @Binding var endTimePicker: Date
+    @Binding var observations: String
     let isSaving: Bool
-    let onSave: (Date, String?) -> Void
+    let onSave: (Date, String?, String) async -> Bool
 
     @State private var isSubmitting = false
+    @State private var saveFailed = false
+    @State private var confirmDiscard = false
 
     var body: some View {
         NavigationStack {
@@ -928,13 +943,32 @@ private struct TrainingInfoSheet: View {
                     }
                     .disabled(isSaving || isSubmitting || endTime.isEmpty)
                 }
+                Section {
+                    TextEditor(text: $observations)
+                        .frame(minHeight: 140)
+                        .accessibilityLabel("Observations")
+                } header: {
+                    Text("Observations (facultatif)")
+                } footer: {
+                    Text("Enregistrez vos modifications avant de générer le PDF de la séance.")
+                }
+                if saveFailed {
+                    Text("Impossible d’enregistrer les informations. Réessayez avant de générer le PDF.")
+                        .foregroundStyle(.red)
+                }
+            }
+            .disabled(isSaving || isSubmitting)
+            .interactiveDismissDisabled()
+            .confirmationDialog("Abandonner les modifications non enregistrées ?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Abandonner les modifications", role: .destructive) { dismiss() }
+                Button("Continuer la modification", role: .cancel) { }
             }
             .navigationTitle("Informations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        dismiss()
+                        confirmDiscard = true
                     } label: {
                         Image(systemName: "xmark")
                     }
@@ -945,20 +979,19 @@ private struct TrainingInfoSheet: View {
                     Button {
                         isSubmitting = true
                         let normalizedEndTime = endTime.trimmingCharacters(in: .whitespacesAndNewlines)
-                        onSave(startTime, normalizedEndTime.isEmpty ? nil : normalizedEndTime)
+                        Task {
+                            let saved = await onSave(startTime, normalizedEndTime.isEmpty ? nil : normalizedEndTime, observations)
+                            isSubmitting = false
+                            if saved { dismiss() } else { saveFailed = true }
+                        }
                     } label: {
                         if isSaving || isSubmitting {
                             ProgressView()
                         } else {
-                            Image(systemName: "checkmark")
+                            Text("Enregistrer")
                         }
                     }
                     .disabled(isSaving || isSubmitting)
-                }
-            }
-            .onChange(of: isSaving) { newValue in
-                if !newValue, isSubmitting {
-                    dismiss()
                 }
             }
         }

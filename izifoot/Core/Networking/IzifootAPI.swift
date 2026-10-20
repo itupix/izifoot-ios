@@ -599,9 +599,11 @@ final class IzifootAPI {
         dateISO8601: String,
         status: String = "PLANIFIED",
         teamID: String? = nil,
-        teamName: String? = nil
+        teamName: String? = nil,
+        observations: String? = nil
     ) async throws -> Training {
         struct CreateTrainingPayload: Encodable {
+            let observations: String?
             let date: String
             let status: String
             let teamId: String?
@@ -613,6 +615,7 @@ final class IzifootAPI {
         return try await client.post(
             APIRoutes.Trainings.list,
             body: CreateTrainingPayload(
+                observations: observations,
                 date: dateISO8601,
                 status: status,
                 teamId: teamID,
@@ -1167,9 +1170,11 @@ final class IzifootAPI {
         id: String,
         status: String? = nil,
         dateISO8601: String? = nil,
-        endTime: String? = nil
+        endTime: String? = nil,
+        observations: String? = nil
     ) async throws -> Training {
         struct UpdateTrainingPayload: Encodable {
+            let observations: String?
             let status: String?
             let date: String?
             let endTime: String?
@@ -1177,7 +1182,7 @@ final class IzifootAPI {
 
         return try await client.put(
             APIRoutes.Trainings.byID(id),
-            body: UpdateTrainingPayload(status: status, date: dateISO8601, endTime: endTime),
+            body: UpdateTrainingPayload(observations: observations, status: status, date: dateISO8601, endTime: endTime),
             responseType: Training.self
         )
     }

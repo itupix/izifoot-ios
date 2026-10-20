@@ -620,6 +620,7 @@ struct CoachInviteActionResponse: Decodable {
 }
 
 struct Training: Codable, Identifiable {
+    let observations: String?
     let id: String
     let date: String
     let seasonId: String?
