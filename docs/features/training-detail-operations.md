@@ -166,7 +166,7 @@ Coaches and direction open the session’s three-dot “Actions de la séance”
 
 - Contract: authenticated `GET /trainings/:id/summary.pdf?timeZone=Europe%2FParis`, no request body. Uses existing Bearer token and active team headers.
 - Success: binary `application/pdf` containing date, hours, actual recorded present players and attached exercises in saved order, each with full title and description. Attached exercises have no completion flag; attendance intentions are excluded.
-- The downloaded PDF opens a large preview sheet titled “Résumé de la séance”, with “Fermer” on the left and “Partager le PDF” on the right. Native PDFKit displays the document with automatic scaling, continuous vertical scrolling and pinch zoom. The share button opens the native share sheet (including Save to Files) above the preview; closing sharing returns to the same preview. Both use the same local file without another API request. Temporary files use complete file protection and are removed only when the preview closes. An unreadable or empty PDF displays “Impossible d’afficher le PDF.” and disables sharing. Requests bypass the local response cache; server responses are private/no-store.
+- The downloaded PDF opens a large preview sheet titled “Résumé de la séance”, with “Fermer” on the left and “Partager le PDF” on the right. Native PDFKit displays the document with automatic scaling, continuous vertical scrolling and pinch zoom. The share button opens the native share sheet (including Save to Files) above the preview; closing sharing returns to the same preview. Both use the same local file without another API request. Temporary files use complete file protection and are removed only when the preview closes. An unreadable or empty PDF displays “Impossible d’afficher le PDF.” and disables sharing. Requests bypass the system HTTP response cache; the PDF response is private/no-cache/max-age=0/must-revalidate, and version metadata is private/no-store.
 - Errors: 400 invalid timezone, 401 expired session (existing sign-in handling), 403 access denied, 404 missing training and 500 generation failure remain recoverable with the same button. Invalid/non-PDF successful responses are rejected.
 - Manual acceptance: export a saved session and cancelled session; verify accented names, exercise order, long descriptions, empty attendance/exercises, Europe/Paris timezone, native sharing/cancel, network failure/retry and restricted-role visibility. Export must remain disabled until saves/reorder complete.
 
@@ -212,3 +212,22 @@ Validation after the change: Debug iPhoneOS arm64 and simulator builds pass; UX 
 The existing PDF request, native animated preview, sharing and cleanup remain unchanged. “Résumé” is available only with existing writable permissions and remains available on cancelled sessions. Unsaved editors remain modal. Check the first menu action, document icon, toolbar loading feedback, repeated taps while downloading, generation error/retry and reader-role visibility.
 
 Validation: Swift syntax parsing and unsigned Debug iPhoneOS arm64 build pass; UX code review passes. Physical-device menu interaction remains manual.
+
+## Versioned private PDF cache
+
+Opening Résumé first calls authenticated `GET /trainings/:id/summary-version?timeZone=Europe%2FParis`. Its `{version,timeZone}` identifies the current PDF snapshot including related players, attendance, drills, diagrams, observations, timezone and renderer version. This lightweight request does not render a PDF. A valid local PDF with the same version opens without calling the generation endpoint. Missing, corrupt or changed files trigger the existing PDF download; `X-Training-Summary-Version` from that exact response labels the stored bytes, covering a change between metadata and generation requests. Invalid/missing version headers or unreadable/empty PDFs are never cached.
+
+The durable cache is separate from preview/share files, in private Application Support with complete file protection and backup exclusion. Keys include account, club, active team, training, server-canonical timezone, client cache format and server snapshot version. A valid replacement is written atomically before older versions of the same scope are removed. Concurrent opens of the same scope share one request. Closing preview deletes only its protected temporary copy; the durable PDF survives app relaunch. Normal session restoration preserves this cache. Logout/account changes cancel pending cache work and purge durable and temporary PDFs; changed sessions cannot write or open old results. Deleted/inaccessible sessions (403/404) invalidate their cached PDFs. Version checks happen every opening, so local and remote edits are both detected. Offline/failed checks show an explicit retry error and never silently open an unverified old snapshot.
+
+The toolbar uses generic loading while checking metadata and generation feedback only on a cache miss. Menu placement, animated preview, sharing and permissions are unchanged.
+
+Targeted verification:
+
+```sh
+swiftc -module-cache-path /tmp/izifoot-summary-cache-swift-cache izifoot/Core/Networking/APIClient.swift izifoot/Core/Storage/TrainingSummaryCache.swift tests/TrainingSummaryCacheChecks.swift -o /tmp/check-training-summary-cache
+/tmp/check-training-summary-cache
+```
+
+The real-file service harness verifies persistent hits with zero PDF download calls, missing/corrupt/changed cache, metadata/render version races, offline rejection, canonical timezone aliases, account/club/team/timezone isolation, request deduplication, invalid/missing headers, expired-session rejection and 403/404/purge cleanup. The existing API client PDF harness also verifies extraction of the server version header. Manual device acceptance: reopen unchanged PDF, edit local and remote training dependencies, retry offline, relaunch app, share/close, switch accounts, log out and verify data protection on a locked device.
+
+Validation: targeted cache and API client networking harnesses pass; unsigned Debug iPhoneOS arm64 build passes; UX review confirms unchanged preview and transparent cache behavior.

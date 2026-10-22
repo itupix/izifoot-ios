@@ -45,6 +45,7 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var roleEntries: [TrainingRoleEntry] = []
     @Published private(set) var trainingIntentByPlayerID: [String: String] = [:]
     @Published private(set) var isGeneratingSummary = false
+    @Published private(set) var isCheckingSummary = false
     @Published private(set) var summaryURL: URL?
     private(set) var summaryDocument: PDFDocument?
     @Published private(set) var isLoading = false
@@ -66,33 +67,47 @@ final class TrainingDetailViewModel: ObservableObject {
         isSavingAttendance || isSavingDrills || isSavingRoles || isUpdatingStatus || isDeleting
     }
 
-    func generateSummary() async {
-        guard !isGeneratingSummary, !isPersisting, !isLoading else { return }
-        isGeneratingSummary = true
-        defer { isGeneratingSummary = false }
+    func generateSummary(accountID: String, clubID: String?) async {
+        guard !isCheckingSummary, !isGeneratingSummary, !isPersisting, !isLoading else { return }
+        clearSummary()
+        isCheckingSummary = true
+        defer { isCheckingSummary = false; isGeneratingSummary = false }
+        let teamID = AppSession.shared.activeTeamID
+        let token = TokenStore.shared.token
+        let scope = TrainingSummaryScope(accountID: accountID, clubID: clubID, teamID: teamID,
+                                         trainingID: training.id, timeZone: "Europe/Paris")
         do {
-            let data = try await api.trainingSummaryPDF(trainingID: training.id)
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let cached = try await TrainingSummaryCache.shared.load(
+                scope: scope,
+                version: { try await self.api.trainingSummaryVersion(trainingID: self.training.id, timeZone: scope.timeZone) },
+                download: { try await self.api.trainingSummaryPDF(trainingID: self.training.id, timeZone: scope.timeZone) },
+                sessionIsCurrent: {
+                    TokenStore.shared.cachedMe?.id == accountID && TokenStore.shared.token == token
+                        && AppSession.shared.activeTeamID == teamID
+                },
+                onGeneration: { self.isGeneratingSummary = true }
+            )
+            let directory = TrainingSummaryCache.previewDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"
             formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "Europe/Paris")
+            formatter.timeZone = TimeZone(identifier: scope.timeZone)
             let dateLabel = DateFormatters.parseISODate(training.date).map { formatter.string(from: $0) } ?? "entrainement"
             let url = directory.appendingPathComponent("resume-seance-\(dateLabel).pdf")
             do {
-                try data.write(to: url, options: [.atomic, .completeFileProtection])
+                try FileManager.default.copyItem(at: cached.url, to: url)
+                try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
             } catch {
                 try? FileManager.default.removeItem(at: directory)
                 throw error
             }
-            // Prepare PDFKit before presenting the sheet so parsing cannot stall its transition.
-            summaryDocument = PDFDocument(url: url)
+            summaryDocument = cached.document
             summaryURL = url
             errorMessage = nil
         } catch {
             if !error.isCancellationError {
-                errorMessage = "Impossible de générer le résumé. \(error.localizedDescription)"
+                errorMessage = "Impossible d’actualiser le résumé. Réessayez. \(error.localizedDescription)"
             }
         }
     }
@@ -194,6 +209,9 @@ final class TrainingDetailViewModel: ObservableObject {
 
         do {
             try await api.deleteTraining(id: training.id)
+            if let accountID = TokenStore.shared.cachedMe?.id {
+                TrainingSummaryCache.shared.removeTraining(accountID: accountID, trainingID: training.id)
+            }
             errorMessage = nil
             return true
         } catch {
@@ -491,7 +509,7 @@ struct TrainingDetailView: View {
         .navigationTitle("Entraînement")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            if viewModel.isLoading || viewModel.isGeneratingSummary {
+            if viewModel.isLoading || viewModel.isCheckingSummary || viewModel.isGeneratingSummary {
                 ToolbarItem(placement: .topBarTrailing) {
                     ProgressView()
                         .controlSize(.small)
@@ -503,14 +521,16 @@ struct TrainingDetailView: View {
                     Menu {
                         Button {
                             Task {
-                                await viewModel.generateSummary()
+                                if let me = authStore.me {
+                                    await viewModel.generateSummary(accountID: me.id, clubID: me.clubId)
+                                }
                                 isSummaryPreviewPresented = viewModel.summaryURL != nil
                             }
                         } label: {
                             Label("Résumé", systemImage: "doc.richtext")
                         }
                         .accessibilityLabel("Résumé de la séance (PDF)")
-                        .disabled(viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
+                        .disabled(viewModel.isCheckingSummary || viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
 
                         Divider()
 

@@ -60,6 +60,11 @@ extension Error {
     }
 }
 
+struct PDFDownload: Decodable {
+    let data: Data
+    let version: String?
+}
+
 protocol APIClientProtocol {
     func get<T: Decodable>(_ path: String, responseType: T.Type) async throws -> T
     func post<T: Decodable, Body: Encodable>(_ path: String, body: Body, responseType: T.Type) async throws -> T
@@ -107,8 +112,12 @@ final class APIClient: APIClientProtocol {
         request.httpMethod = method
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if T.self == Data.self {
+        if T.self == Data.self || T.self == PDFDownload.self {
             request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
+
+        if path.contains("/summary-version") {
             request.cachePolicy = .reloadIgnoringLocalCacheData
         }
 
@@ -143,13 +152,15 @@ final class APIClient: APIClientProtocol {
                 throw APIError.server(status: httpResponse.statusCode, message: message)
             }
 
-            if T.self == Data.self {
+            if T.self == Data.self || T.self == PDFDownload.self {
                 guard httpResponse.mimeType?.lowercased() == "application/pdf",
-                      data.starts(with: Data("%PDF-".utf8)),
-                      let binary = data as? T else {
+                      data.starts(with: Data("%PDF-".utf8)) else {
                     throw APIError.server(status: httpResponse.statusCode, message: "Le PDF reçu est invalide. Veuillez réessayer.")
                 }
-                return binary
+                if let download = PDFDownload(data: data, version: httpResponse.value(forHTTPHeaderField: "X-Training-Summary-Version")) as? T {
+                    return download
+                }
+                return data as! T
             }
 
             do {

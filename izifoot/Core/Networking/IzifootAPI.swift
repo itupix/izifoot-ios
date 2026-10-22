@@ -851,13 +851,21 @@ final class IzifootAPI {
         )
     }
 
-    /// Downloads the server-generated summary in the shared club timezone.
-    func trainingSummaryPDF(trainingID: String) async throws -> Data {
+    func trainingSummaryVersion(trainingID: String, timeZone: String) async throws -> TrainingSummaryVersion {
+        let path = appendQueryItems(
+            "\(APIRoutes.Trainings.byID(trainingID))/summary-version",
+            items: [URLQueryItem(name: "timeZone", value: timeZone)]
+        )
+        return try await client.get(path, responseType: TrainingSummaryVersion.self)
+    }
+
+    /// The version header describes the exact rendered snapshot, including concurrent edits.
+    func trainingSummaryPDF(trainingID: String, timeZone: String = "Europe/Paris") async throws -> PDFDownload {
         let path = appendQueryItems(
             "\(APIRoutes.Trainings.byID(trainingID))/summary.pdf",
-            items: [URLQueryItem(name: "timeZone", value: "Europe/Paris")]
+            items: [URLQueryItem(name: "timeZone", value: timeZone)]
         )
-        return try await client.get(path, responseType: Data.self)
+        return try await client.get(path, responseType: PDFDownload.self)
     }
 
     func trainingDrills(trainingID: String) async throws -> [TrainingDrill] {

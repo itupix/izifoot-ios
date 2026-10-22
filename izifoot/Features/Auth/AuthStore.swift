@@ -3,7 +3,11 @@ import Foundation
 
 @MainActor
 final class AuthStore: ObservableObject {
-    @Published private(set) var me: Me?
+    @Published private(set) var me: Me? {
+        didSet {
+            if let previousID = oldValue?.id, previousID != me?.id { TrainingSummaryCache.shared.removeAll() }
+        }
+    }
     @Published private(set) var isRestoringSession = false
     @Published private(set) var isAuthenticating = false
     @Published var errorMessage: String?
@@ -152,6 +156,7 @@ final class AuthStore: ObservableObject {
     }
 
     private func clearSession() {
+        TrainingSummaryCache.shared.removeAll()
         tokenStore.token = nil
         tokenStore.refreshToken = nil
         tokenStore.cachedMe = nil

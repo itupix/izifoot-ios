@@ -16,7 +16,7 @@ final class StubProtocol: URLProtocol {
         precondition(request.value(forHTTPHeaderField: "X-Team-Id") == "team")
         precondition(request.value(forHTTPHeaderField: "Accept") == "application/pdf")
         precondition(request.cachePolicy == .reloadIgnoringLocalCacheData)
-        client!.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: ["Content-Type": Self.mime])!, cacheStoragePolicy: .notAllowed)
+        client!.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: ["Content-Type": Self.mime, "X-Training-Summary-Version": String(repeating: "a", count: 64)])!, cacheStoragePolicy: .notAllowed)
         client!.urlProtocol(self, didLoad: Self.body)
         client!.urlProtocolDidFinishLoading(self)
     }
@@ -30,6 +30,8 @@ final class StubProtocol: URLProtocol {
         let client = APIClient(session: URLSession(configuration: config), tokenStore: store)
         let data = try await client.get("/trainings/id/summary.pdf?timeZone=Europe%2FParis", responseType: Data.self)
         precondition(data == StubProtocol.body)
+        let versioned = try await client.get("/trainings/id/summary.pdf", responseType: PDFDownload.self)
+        precondition(versioned.data == data && versioned.version == String(repeating: "a", count: 64))
         StubProtocol.mime = "application/json"
         do { let _: Data = try await client.get("/pdf", responseType: Data.self); fatalError("Accepted non-PDF") } catch APIError.server { }
         StubProtocol.mime = "application/pdf"
