@@ -395,33 +395,6 @@ struct TrainingDetailView: View {
                     )
                 }
 
-                if writable {
-                    Button {
-                        Task {
-                            await viewModel.generateSummary()
-                            isSummaryPreviewPresented = viewModel.summaryURL != nil
-                        }
-                    } label: {
-                        HStack {
-                            if viewModel.isGeneratingSummary {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: "doc.text")
-                            }
-                            Text(viewModel.isGeneratingSummary ? "Génération du PDF…" : "Générer le résumé de la séance")
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
-
-                    Text("Le PDF reprend les informations enregistrées et utilise les horaires de Paris.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
                 PlayersAttendanceCard(
                     players: filteredPlayers,
                     presentPlayerIDs: presentPlayerIDs,
@@ -518,15 +491,29 @@ struct TrainingDetailView: View {
         .navigationTitle("Entraînement")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            if viewModel.isLoading {
+            if viewModel.isLoading || viewModel.isGeneratingSummary {
                 ToolbarItem(placement: .topBarTrailing) {
                     ProgressView()
                         .controlSize(.small)
+                        .accessibilityLabel(viewModel.isGeneratingSummary ? "Génération du PDF en cours" : "Chargement")
                 }
             }
             if writable {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        Button {
+                            Task {
+                                await viewModel.generateSummary()
+                                isSummaryPreviewPresented = viewModel.summaryURL != nil
+                            }
+                        } label: {
+                            Label("Résumé", systemImage: "doc.richtext")
+                        }
+                        .accessibilityLabel("Résumé de la séance (PDF)")
+                        .disabled(viewModel.isGeneratingSummary || viewModel.isPersisting || viewModel.isLoading)
+
+                        Divider()
+
                         Button(viewModel.training.status == "CANCELLED" ? "Réactiver" : "Annuler") {
                             Task {
                                 await viewModel.setCancelled(viewModel.training.status != "CANCELLED")
@@ -541,6 +528,7 @@ struct TrainingDetailView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Actions de la séance")
                 }
             }
         }

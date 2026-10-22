@@ -162,7 +162,7 @@ Constraints: scope and relation integrity.
 
 ## Training summary PDF
 
-Coaches and direction can use “Générer le résumé de la séance” near the date, including for cancelled sessions. The button displays “Génération du PDF…” while downloading and is disabled during loading, saves and drill reordering. Editors are modal: dismiss or save them before exporting; the summary always uses saved server data.
+Coaches and direction open the session’s three-dot “Actions de la séance” menu and choose its first action, “Résumé” (native `doc.richtext` document icon), including for cancelled sessions. A divider separates this action from cancellation/reactivation and deletion. The standalone PDF button and its help text are removed. A toolbar progress indicator remains visible while downloading; the menu action is disabled during generation, loading, saves and drill reordering. Editors are modal: dismiss or save them before exporting; the summary always uses saved server data.
 
 - Contract: authenticated `GET /trainings/:id/summary.pdf?timeZone=Europe%2FParis`, no request body. Uses existing Bearer token and active team headers.
 - Success: binary `application/pdf` containing date, hours, actual recorded present players and attached exercises in saved order, each with full title and description. Attached exercises have no completion flag; attendance intentions are excluded.
@@ -206,3 +206,9 @@ Diagnostic: an isolated copy of the complete RootView → MainShell/TabView → 
 Acceptance: open and close using Fermer and swipe on a physical iPhone, compare Reduce Motion enabled/disabled, close during the loading indicator, and share/cancel/reopen sharing while verifying the existing zoom/position and saved PDF contents. The same downloaded file remains available until preview dismissal; no additional network request occurs.
 
 Validation after the change: Debug iPhoneOS arm64 and simulator builds pass; UX code review passes. In the complete-hierarchy simulator diagnostic, native presentation remained animated and the PDF controller’s `viewDidAppear` occurred about 689 ms after presentation began; PDF mounting followed this callback rather than running during the transition. Physical-device smoothness, Reduce Motion and interactive dismissal still require device acceptance.
+
+## Summary menu verification
+
+The existing PDF request, native animated preview, sharing and cleanup remain unchanged. “Résumé” is available only with existing writable permissions and remains available on cancelled sessions. Unsaved editors remain modal. Check the first menu action, document icon, toolbar loading feedback, repeated taps while downloading, generation error/retry and reader-role visibility.
+
+Validation: Swift syntax parsing and unsigned Debug iPhoneOS arm64 build pass; UX code review passes. Physical-device menu interaction remains manual.
