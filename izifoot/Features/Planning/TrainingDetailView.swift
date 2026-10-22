@@ -46,6 +46,7 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var trainingIntentByPlayerID: [String: String] = [:]
     @Published private(set) var isGeneratingSummary = false
     @Published private(set) var summaryURL: URL?
+    private(set) var summaryDocument: PDFDocument?
     @Published private(set) var isLoading = false
     @Published private(set) var isSavingAttendance = false
     @Published private(set) var isSavingDrills = false
@@ -85,6 +86,8 @@ final class TrainingDetailViewModel: ObservableObject {
                 try? FileManager.default.removeItem(at: directory)
                 throw error
             }
+            // Prepare PDFKit before presenting the sheet so parsing cannot stall its transition.
+            summaryDocument = PDFDocument(url: url)
             summaryURL = url
             errorMessage = nil
         } catch {
@@ -99,6 +102,7 @@ final class TrainingDetailViewModel: ObservableObject {
             try? FileManager.default.removeItem(at: summaryURL.deletingLastPathComponent())
         }
         summaryURL = nil
+        summaryDocument = nil
     }
 
     func applyUpdatedDrill(_ updated: Drill) {
@@ -571,7 +575,7 @@ struct TrainingDetailView: View {
             viewModel.clearSummary()
         }) {
             if let url = viewModel.summaryURL {
-                TrainingSummaryPreviewSheet(url: url)
+                TrainingSummaryPreviewSheet(url: url, document: viewModel.summaryDocument)
                     .presentationDetents([.large])
             }
         }
@@ -1779,12 +1783,7 @@ private struct TrainingSummaryPreviewSheet: View {
     @State private var isSharing = false
 
     let url: URL
-    private let document: PDFDocument?
-
-    init(url: URL) {
-        self.url = url
-        document = PDFDocument(url: url)
-    }
+    let document: PDFDocument?
 
     var body: some View {
         NavigationStack {
@@ -1820,22 +1819,62 @@ private struct TrainingSummaryPreviewSheet: View {
     }
 }
 
-private struct TrainingSummaryPDFView: UIViewRepresentable {
+private struct TrainingSummaryPDFView: UIViewControllerRepresentable {
     let document: PDFDocument
 
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
-        view.autoScales = true
-        view.displayMode = .singlePageContinuous
-        view.displayDirection = .vertical
-        view.document = document
-        return view
+    func makeUIViewController(context: Context) -> TrainingSummaryPDFViewController {
+        TrainingSummaryPDFViewController(document: document)
     }
 
-    func updateUIView(_ view: PDFView, context: Context) {
-        if view.document !== document {
-            view.document = document
-        }
+    func updateUIViewController(_ controller: TrainingSummaryPDFViewController, context: Context) {}
+}
+
+private final class TrainingSummaryPDFViewController: UIViewController {
+    private let document: PDFDocument
+    private var pdfView: PDFView?
+    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+
+    init(document: PDFDocument) {
+        self.document = document
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .secondarySystemBackground
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        loadingIndicator.accessibilityLabel = "Chargement du PDF"
+        view.addSubview(loadingIndicator)
+        NSLayoutConstraint.activate([
+            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        loadingIndicator.startAnimating()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // PDFKit's initial layout runs only after the native sheet transition has completed.
+        // Keep the same view when returning from sharing, preserving scroll position and zoom.
+        guard pdfView == nil, !isBeingDismissed else { return }
+        let pdf = PDFView()
+        pdf.translatesAutoresizingMaskIntoConstraints = false
+        pdf.autoScales = true
+        pdf.displayMode = .singlePageContinuous
+        pdf.displayDirection = .vertical
+        view.addSubview(pdf)
+        NSLayoutConstraint.activate([
+            pdf.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pdf.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pdf.topAnchor.constraint(equalTo: view.topAnchor),
+            pdf.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        pdf.document = document
+        pdfView = pdf
+        loadingIndicator.stopAnimating()
+        loadingIndicator.removeFromSuperview()
     }
 }
 

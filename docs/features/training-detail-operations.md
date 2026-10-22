@@ -196,3 +196,13 @@ Verification: unsigned Debug iPhoneOS arm64 build passes with Xcode (explicit `D
 The preview uses the existing PDF endpoint unchanged. Verify a multipage document, scrolling, pinch zoom, toolbar accessibility labels, Share then Cancel returning to the preview, repeated sharing without downloading again, Close/swipe cleanup, and generation error/retry. The unreadable-document fallback keeps Close available and disables Share. No persistence or permission changes.
 
 Validation: unsigned Debug iPhoneOS arm64 build and Swift syntax parsing pass. UX code review passes; simulator/device visual and sharing acceptance remains manual.
+
+## PDF sheet transition responsiveness
+
+The document is prepared once during generation, before presenting the preview. The preview initializer performs no PDF parsing. A lightweight native loading indicator occupies the preview area during the native sheet transition; the PDF view is mounted in its view controller’s `viewDidAppear`, after presentation completes. Mounting is idempotent so returning from sharing preserves zoom and scroll. Close, interactive dismissal, accessibility Reduce Motion behavior and file cleanup on preview dismissal remain native and unchanged.
+
+Diagnostic: an isolated copy of the complete RootView → MainShell/TabView → TrainingDetailView hierarchy, using a real exported PDF, reported UIKit presentation/dismissal `animated=true` and no disabled SwiftUI transaction. Before the change, document parsing took about 27 ms and assigning the PDF view document about 48 ms on the simulator host, with document parsing repeated during recomposition. PDFKit work therefore occupied the presentation path beyond a 60 Hz frame budget. This supports removing that work from the transition; the user’s physical-iPhone symptom was not directly reproduced. No custom animation duration or forced transaction is introduced.
+
+Acceptance: open and close using Fermer and swipe on a physical iPhone, compare Reduce Motion enabled/disabled, close during the loading indicator, and share/cancel/reopen sharing while verifying the existing zoom/position and saved PDF contents. The same downloaded file remains available until preview dismissal; no additional network request occurs.
+
+Validation after the change: Debug iPhoneOS arm64 and simulator builds pass; UX code review passes. In the complete-hierarchy simulator diagnostic, native presentation remained animated and the PDF controller’s `viewDidAppear` occurred about 689 ms after presentation began; PDF mounting followed this callback rather than running during the transition. Physical-device smoothness, Reduce Motion and interactive dismissal still require device acceptance.
