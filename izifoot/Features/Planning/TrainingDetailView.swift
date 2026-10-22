@@ -1,4 +1,5 @@
 import Combine
+import PDFKit
 import SwiftUI
 import UIKit
 
@@ -369,7 +370,7 @@ struct TrainingDetailView: View {
     @State private var trainingObservationsDraft = ""
     @State private var trainingEndTimePicker = Date()
     @State private var isTrainingInfoSheetPresented = false
-    @State private var isSummarySharePresented = false
+    @State private var isSummaryPreviewPresented = false
 
     init(training: Training) {
         _viewModel = StateObject(wrappedValue: TrainingDetailViewModel(training: training))
@@ -394,7 +395,7 @@ struct TrainingDetailView: View {
                     Button {
                         Task {
                             await viewModel.generateSummary()
-                            isSummarySharePresented = viewModel.summaryURL != nil
+                            isSummaryPreviewPresented = viewModel.summaryURL != nil
                         }
                     } label: {
                         HStack {
@@ -566,11 +567,12 @@ struct TrainingDetailView: View {
         .refreshable {
             await viewModel.load()
         }
-        .sheet(isPresented: $isSummarySharePresented, onDismiss: {
+        .sheet(isPresented: $isSummaryPreviewPresented, onDismiss: {
             viewModel.clearSummary()
         }) {
             if let url = viewModel.summaryURL {
-                TrainingSummaryShareSheet(url: url)
+                TrainingSummaryPreviewSheet(url: url)
+                    .presentationDetents([.large])
             }
         }
         .sheet(isPresented: $isAttendanceSheetPresented) {
@@ -1768,6 +1770,71 @@ private extension View {
             self.presentationBackground(.clear)
         } else {
             self
+        }
+    }
+}
+
+private struct TrainingSummaryPreviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var isSharing = false
+
+    let url: URL
+    private let document: PDFDocument?
+
+    init(url: URL) {
+        self.url = url
+        document = PDFDocument(url: url)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let document, document.pageCount > 0 {
+                    TrainingSummaryPDFView(document: document)
+                } else {
+                    Text("Impossible d’afficher le PDF.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle("Résumé de la séance")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fermer") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isSharing = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Partager le PDF")
+                    .disabled(document == nil || document?.pageCount == 0)
+                }
+            }
+            .sheet(isPresented: $isSharing) {
+                TrainingSummaryShareSheet(url: url)
+            }
+        }
+    }
+}
+
+private struct TrainingSummaryPDFView: UIViewRepresentable {
+    let document: PDFDocument
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.document = document
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {
+        if view.document !== document {
+            view.document = document
         }
     }
 }

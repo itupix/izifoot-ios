@@ -166,7 +166,7 @@ Coaches and direction can use “Générer le résumé de la séance” near the
 
 - Contract: authenticated `GET /trainings/:id/summary.pdf?timeZone=Europe%2FParis`, no request body. Uses existing Bearer token and active team headers.
 - Success: binary `application/pdf` containing date, hours, actual recorded present players and attached exercises in saved order, each with full title and description. Attached exercises have no completion flag; attendance intentions are excluded.
-- The downloaded PDF opens the native share sheet (including Save to Files). Temporary files use complete file protection and are removed when sharing closes. Requests bypass the local response cache; server responses are private/no-store.
+- The downloaded PDF opens a large preview sheet titled “Résumé de la séance”, with “Fermer” on the left and “Partager le PDF” on the right. Native PDFKit displays the document with automatic scaling, continuous vertical scrolling and pinch zoom. The share button opens the native share sheet (including Save to Files) above the preview; closing sharing returns to the same preview. Both use the same local file without another API request. Temporary files use complete file protection and are removed only when the preview closes. An unreadable or empty PDF displays “Impossible d’afficher le PDF.” and disables sharing. Requests bypass the local response cache; server responses are private/no-store.
 - Errors: 400 invalid timezone, 401 expired session (existing sign-in handling), 403 access denied, 404 missing training and 500 generation failure remain recoverable with the same button. Invalid/non-PDF successful responses are rejected.
 - Manual acceptance: export a saved session and cancelled session; verify accented names, exercise order, long descriptions, empty attendance/exercises, Europe/Paris timezone, native sharing/cancel, network failure/retry and restricted-role visibility. Export must remain disabled until saves/reorder complete.
 
@@ -190,3 +190,9 @@ Training Information includes an optional multiline “Observations” editor, u
 The modal editor blocks PDF access while editing. “Enregistrer” awaits success before dismissing. A failed save keeps the draft and displays a retry message. Closing explicitly confirms abandonment of unsaved changes; swipe dismissal is disabled. Saving disables all fields and dismissal. PDF help text states that only saved information is included.
 
 Verification: unsigned Debug iPhoneOS arm64 build passes with Xcode (explicit `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`); Swift syntax parsing passes; decoding checked with absent/null/empty/multiline accented observations. The existing production API client PDF networking check passes (including auth, team scope, PDF validation and errors). Manual device acceptance remains: save/reopen multiline text, clear/reopen, retry failed save, discard confirmation, inspect generated PDF, and compare coach/reader/cancelled-session permissions with schedule editing.
+
+## PDF preview sheet verification
+
+The preview uses the existing PDF endpoint unchanged. Verify a multipage document, scrolling, pinch zoom, toolbar accessibility labels, Share then Cancel returning to the preview, repeated sharing without downloading again, Close/swipe cleanup, and generation error/retry. The unreadable-document fallback keeps Close available and disables Share. No persistence or permission changes.
+
+Validation: unsigned Debug iPhoneOS arm64 build and Swift syntax parsing pass. UX code review passes; simulator/device visual and sharing acceptance remains manual.
