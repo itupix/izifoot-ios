@@ -183,9 +183,9 @@ Swift syntax parsing and this networking check pass. Full iOS compilation and si
 
 ## Training observations
 
-Training Information includes an optional multiline “Observations” editor, using the existing schedule-edit permissions. Saved text appears in full after the schedule in the Information card, including for readers. Empty values display “Aucune observation”. Accents and line breaks remain unchanged; there is no client-side length limit.
+Observations has its own card between Informations and Exercices, with the same heading level and Modifier action. Its dedicated sheet contains the optional multiline editor, using the existing schedule-edit permissions (no editing for readers or cancelled sessions). Saved text appears in full in the Observations card, including for readers. Empty values display “Aucune observation”. Accents and line breaks remain unchanged; there is no client-side length limit.
 
-`Training.observations` decodes as an optional string, including older responses omitting the key. `createTraining` and `updateTraining` accept optional observations. An omitted update leaves existing observations unchanged; the Information editor always sends its string and sends an empty string to clear the field. Status-only updates omit observations. The existing PDF endpoint includes saved observations without a new query parameter.
+`Training.observations` decodes as an optional string, including older responses omitting the key. `createTraining` and `updateTraining` accept optional observations. An omitted update leaves existing observations unchanged; the Observations editor sends only its string and sends an empty string to clear the field. Schedule and status updates omit observations; observation updates omit date, end time and status. The existing PDF endpoint includes saved observations without a new query parameter.
 
 The modal editor blocks PDF access while editing. “Enregistrer” awaits success before dismissing. A failed save keeps the draft and displays a retry message. Closing explicitly confirms abandonment of unsaved changes; swipe dismissal is disabled. Saving disables all fields and dismissal. PDF help text states that only saved information is included.
 
@@ -231,3 +231,7 @@ swiftc -module-cache-path /tmp/izifoot-summary-cache-swift-cache izifoot/Core/Ne
 The real-file service harness verifies persistent hits with zero PDF download calls, missing/corrupt/changed cache, metadata/render version races, offline rejection, canonical timezone aliases, account/club/team/timezone isolation, request deduplication, invalid/missing headers, expired-session rejection and 403/404/purge cleanup. The existing API client PDF harness also verifies extraction of the server version header. Manual device acceptance: reopen unchanged PDF, edit local and remote training dependencies, retry offline, relaunch app, share/close, switch accounts, log out and verify data protection on a locked device.
 
 Validation: targeted cache and API client networking harnesses pass; unsigned Debug iPhoneOS arm64 build passes; UX review confirms unchanged preview and transparent cache behavior.
+
+### Observations section verification (2026-10-22)
+
+Debug iOS Simulator build passes with Xcode and signing disabled. UX source review confirms peer card order, dedicated editor, multiline/empty rendering, read-only and cancelled-session restrictions, failure draft retention and explicit discard. Device interaction remains a manual acceptance check.

@@ -184,7 +184,7 @@ final class TrainingDetailViewModel: ObservableObject {
         }
     }
 
-    func updateTrainingSchedule(startDate: Date, endTime: String?, observations: String) async -> Bool {
+    func updateTrainingSchedule(startDate: Date, endTime: String?) async -> Bool {
         isUpdatingStatus = true
         defer { isUpdatingStatus = false }
 
@@ -192,9 +192,22 @@ final class TrainingDetailViewModel: ObservableObject {
             training = try await api.updateTraining(
                 id: training.id,
                 dateISO8601: DateFormatters.isoString(from: startDate),
-                endTime: endTime,
-                observations: observations
+                endTime: endTime
             )
+            errorMessage = nil
+            return true
+        } catch {
+            if !error.isCancellationError { errorMessage = error.localizedDescription }
+            return false
+        }
+    }
+
+    func updateObservations(_ observations: String) async -> Bool {
+        isUpdatingStatus = true
+        defer { isUpdatingStatus = false }
+
+        do {
+            training = try await api.updateTraining(id: training.id, observations: observations)
             errorMessage = nil
             return true
         } catch {
@@ -392,6 +405,7 @@ struct TrainingDetailView: View {
     @State private var trainingObservationsDraft = ""
     @State private var trainingEndTimePicker = Date()
     @State private var isTrainingInfoSheetPresented = false
+    @State private var isObservationsSheetPresented = false
     @State private var isSummaryPreviewPresented = false
 
     init(training: Training) {
@@ -432,13 +446,21 @@ struct TrainingDetailView: View {
                             trainingTimeDraft = parsed
                         }
                         trainingEndTimeDraft = viewModel.training.endTime ?? ""
-                        trainingObservationsDraft = viewModel.training.observations ?? ""
                         if let parsedEndTime = Self.dateFromHHmm(trainingEndTimeDraft, on: trainingTimeDraft) {
                             trainingEndTimePicker = parsedEndTime
                         }
                         isTrainingInfoSheetPresented = true
                     }
                 )
+
+                TrainingObservationsCard(
+                    observations: viewModel.training.observations,
+                    writable: writable && !isCancelled,
+                    isSaving: viewModel.isUpdatingStatus
+                ) {
+                    trainingObservationsDraft = viewModel.training.observations ?? ""
+                    isObservationsSheetPresented = true
+                }
 
                 ExercisesCard(
                     trainingDrills: viewModel.trainingDrills,
@@ -613,10 +635,18 @@ struct TrainingDetailView: View {
                 startTime: $trainingTimeDraft,
                 endTime: $trainingEndTimeDraft,
                 endTimePicker: $trainingEndTimePicker,
+                isSaving: viewModel.isUpdatingStatus
+            ) { startTime, endTime in
+                await viewModel.updateTrainingSchedule(startDate: startTime, endTime: endTime)
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $isObservationsSheetPresented) {
+            TrainingObservationsSheet(
                 observations: $trainingObservationsDraft,
                 isSaving: viewModel.isUpdatingStatus
-            ) { startTime, endTime, observations in
-                await viewModel.updateTrainingSchedule(startDate: startTime, endTime: endTime, observations: observations)
+            ) { observations in
+                await viewModel.updateObservations(observations)
             }
             .presentationDetents([.large])
         }
@@ -893,14 +923,6 @@ private struct TrainingInfoCard: View {
             Text("Horaire: \(trainingTimeLabel(training.date, endTime: training.endTime) ?? "—")")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Observations").font(.subheadline.weight(.semibold))
-                Text(training.observations.flatMap { $0.isEmpty ? nil : $0 } ?? "Aucune observation")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -920,9 +942,8 @@ private struct TrainingInfoSheet: View {
     @Binding var startTime: Date
     @Binding var endTime: String
     @Binding var endTimePicker: Date
-    @Binding var observations: String
     let isSaving: Bool
-    let onSave: (Date, String?, String) async -> Bool
+    let onSave: (Date, String?) async -> Bool
 
     @State private var isSubmitting = false
     @State private var saveFailed = false
@@ -957,15 +978,6 @@ private struct TrainingInfoSheet: View {
                     }
                     .disabled(isSaving || isSubmitting || endTime.isEmpty)
                 }
-                Section {
-                    TextEditor(text: $observations)
-                        .frame(minHeight: 140)
-                        .accessibilityLabel("Observations")
-                } header: {
-                    Text("Observations (facultatif)")
-                } footer: {
-                    Text("Enregistrez vos modifications avant de générer le PDF de la séance.")
-                }
                 if saveFailed {
                     Text("Impossible d’enregistrer les informations. Réessayez avant de générer le PDF.")
                         .foregroundStyle(.red)
@@ -994,7 +1006,102 @@ private struct TrainingInfoSheet: View {
                         isSubmitting = true
                         let normalizedEndTime = endTime.trimmingCharacters(in: .whitespacesAndNewlines)
                         Task {
-                            let saved = await onSave(startTime, normalizedEndTime.isEmpty ? nil : normalizedEndTime, observations)
+                            let saved = await onSave(startTime, normalizedEndTime.isEmpty ? nil : normalizedEndTime)
+                            isSubmitting = false
+                            if saved { dismiss() } else { saveFailed = true }
+                        }
+                    } label: {
+                        if isSaving || isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text("Enregistrer")
+                        }
+                    }
+                    .disabled(isSaving || isSubmitting)
+                }
+            }
+        }
+    }
+}
+
+private struct TrainingObservationsCard: View {
+    let observations: String?
+    let writable: Bool
+    let isSaving: Bool
+    let onEdit: () -> Void
+
+    var body: some View {
+        DetailCard {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                SectionHeaderLabel(title: "Observations", systemImage: "text.bubble")
+                Spacer()
+                if writable {
+                    Button("Modifier", action: onEdit)
+                        .font(.subheadline.weight(.medium))
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isSaving)
+                }
+            }
+            Text(observations.flatMap { $0.isEmpty ? nil : $0 } ?? "Aucune observation")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct TrainingObservationsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var observations: String
+    let isSaving: Bool
+    let onSave: (String) async -> Bool
+
+    @State private var isSubmitting = false
+    @State private var saveFailed = false
+    @State private var confirmDiscard = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $observations)
+                        .frame(minHeight: 140)
+                        .accessibilityLabel("Observations")
+                } header: {
+                    Text("Observations (facultatif)")
+                } footer: {
+                    Text("Enregistrez vos modifications avant de générer le PDF de la séance.")
+                }
+                if saveFailed {
+                    Text("Impossible d’enregistrer les observations. Réessayez avant de générer le PDF.")
+                        .foregroundStyle(.red)
+                }
+            }
+            .disabled(isSaving || isSubmitting)
+            .interactiveDismissDisabled()
+            .confirmationDialog("Abandonner les modifications non enregistrées ?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("Abandonner les modifications", role: .destructive) { dismiss() }
+                Button("Continuer la modification", role: .cancel) { }
+            }
+            .navigationTitle("Observations")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        confirmDiscard = true
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .disabled(isSaving || isSubmitting)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        isSubmitting = true
+                        Task {
+                            let saved = await onSave(observations)
                             isSubmitting = false
                             if saved { dismiss() } else { saveFailed = true }
                         }
