@@ -100,6 +100,7 @@ Constraints: backend scope.
 - Create drill sheet.
 - Drill detail view shows the full exercise name in a large, bold content heading that wraps freely over multiple lines, including with larger accessibility text. The inline navigation bar keeps the native back button without duplicating the title. Category and tags appear below the heading.
 - Authorized users with the required team scope can open “Modifier l’exercice” from the top-right ellipsis menu (“Actions de l’exercice” for VoiceOver). The existing editor and API behavior are unchanged.
+- The Diagramme card places icon-only expand and edit actions at the top right beside its heading. Both have 44-point targets and explicit VoiceOver labels; edit remains restricted to writable team contexts. The AI generation action is hidden for now in every state. Manual creation, loading, retry, viewer and save behavior are preserved.
 - After a diagram loads successfully, the separate Matériel card lists its equipment or “Aucun matériel indiqué dans le diagramme.” Empty-material text is hidden during loading/errors.
 
 ## 12. Routes / API / Handlers
@@ -160,6 +161,7 @@ Constraints: backend scope.
 ## 21. Test Scenarios
 - Happy path: create drill and view detail; open the ellipsis menu and select “Modifier l’exercice” to open the existing editor.
 - Presentation: check a 100-character title on a narrow iPhone and with accessibility text sizes; the whole heading wraps without truncation or a duplicate navigation title. Verify native back navigation and that read-only/missing-team contexts hide the edit menu.
+- Diagram actions: check expand and pencil icons in the header with a loaded diagram; verify VoiceOver labels, read-only edit visibility, and manual creation when empty. No AI action appears when loaded or empty.
 - Permissions: parent does not see drill tab.
 - Errors: create request fails.
 - Edge cases: empty first page; training override present; empty training diagrams falling back to catalog; both sources empty; each request failing independently; catalog fallback edits creating an override.

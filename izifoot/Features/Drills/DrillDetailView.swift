@@ -306,28 +306,38 @@ struct DrillDetailView: View {
     }
 
     private func diagramSection(_ drill: Drill) -> some View {
-        DrillDetailCard(title: "Diagramme") {
+        DrillDetailCard {
+            HStack {
+                Text("Diagramme")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                if let diagram = viewModel.diagram {
+                    Button {
+                        isViewerPresented = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Agrandir le diagramme")
+
+                    if teamScopedWritable {
+                        Button {
+                            editorData = diagram.data
+                            isEditorPresented = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Modifier le diagramme")
+                        .disabled(viewModel.isGeneratingDiagram)
+                    }
+                }
+            }
+            .buttonStyle(.borderless)
+
             if let diagram = viewModel.diagram {
                 DiagramPlayerView(data: diagram.data, minHeight: 280)
-                Button {
-                    isViewerPresented = true
-                } label: {
-                    Label("Agrandir", systemImage: "arrow.up.left.and.arrow.down.right")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-
-                if teamScopedWritable {
-                    Button {
-                        editorData = diagram.data
-                        isEditorPresented = true
-                    } label: {
-                        Label("Modifier le diagramme", systemImage: "pencil")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.isGeneratingDiagram)
-                }
             }
 
             if viewModel.isLoadingDiagram {
@@ -360,29 +370,6 @@ struct DrillDetailView: View {
                     Text("Ajoutez un diagramme pour identifier le matériel.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-
-                if teamScopedWritable {
-                    Button {
-                        Task {
-                            await viewModel.generateDiagram(
-                                drillID: drillID,
-                                trainingDrillID: trainingDrillID,
-                                objective: drill.description
-                            )
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if viewModel.isGeneratingDiagram { ProgressView() }
-                            Label(viewModel.isGeneratingDiagram ? "Création en cours…"
-                                  : viewModel.diagram == nil ? "Créer avec l’IA" : "Générer une nouvelle proposition",
-                                  systemImage: "sparkles")
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(viewModel.isGeneratingDiagram)
                 }
             }
         }
