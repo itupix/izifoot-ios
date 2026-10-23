@@ -1469,3 +1469,16 @@ struct MatchTacticPointPayload: Encodable {
     let x: Double
     let y: Double
 }
+
+// Aggregated by the backend; quantities are reusable maxima, not totals.
+struct TrainingMaterialsResponse: Decodable {
+    struct Item: Decodable, Identifiable {
+        let type: String
+        let label: String
+        let quantity: Int?
+        var id: String { type }
+    }
+    let items: [Item]
+    let drillCount: Int
+    let missingDiagramCount: Int
+}

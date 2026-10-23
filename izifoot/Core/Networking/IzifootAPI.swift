@@ -868,6 +868,10 @@ final class IzifootAPI {
         return try await client.get(path, responseType: PDFDownload.self)
     }
 
+    func trainingMaterials(trainingID: String) async throws -> TrainingMaterialsResponse {
+        try await client.get("\(APIRoutes.Trainings.byID(trainingID))/materials", responseType: TrainingMaterialsResponse.self)
+    }
+
     func trainingDrills(trainingID: String) async throws -> [TrainingDrill] {
         try await client.get(APIRoutes.Trainings.drills(trainingID), responseType: [TrainingDrill].self)
     }
