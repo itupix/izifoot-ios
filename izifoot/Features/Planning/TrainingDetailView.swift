@@ -41,6 +41,10 @@ final class TrainingDetailViewModel: ObservableObject {
     @Published private(set) var players: [Player] = []
     @Published private(set) var attendance: [AttendanceRow] = []
     @Published private(set) var trainingDrills: [TrainingDrill] = []
+    @Published private(set) var materials: TrainingMaterialsResponse?
+    @Published private(set) var isLoadingMaterials = false
+    @Published private(set) var materialsError: String?
+    private var materialsRequestID = UUID()
     @Published private(set) var drillCatalog: [Drill] = []
     @Published private(set) var roleEntries: [TrainingRoleEntry] = []
     @Published private(set) var trainingIntentByPlayerID: [String: String] = [:]
@@ -125,9 +129,30 @@ final class TrainingDetailViewModel: ObservableObject {
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
+    func loadMaterials() async {
+        let requestID = UUID()
+        materialsRequestID = requestID
+        isLoadingMaterials = true
+        materialsError = nil
+        // Never present a previous exercise selection as the current requirements.
+        materials = nil
+        do {
+            let response = try await api.trainingMaterials(trainingID: training.id)
+            guard materialsRequestID == requestID else { return }
+            materials = response
+        } catch {
+            guard materialsRequestID == requestID else { return }
+            if !error.isCancellationError {
+                materialsError = "Impossible de charger le matériel."
+            }
+        }
+        if materialsRequestID == requestID { isLoadingMaterials = false }
+    }
+
     func load() async {
         isLoading = true
         defer { isLoading = false }
+        async let materialsTask: Void = loadMaterials()
 
         do {
             async let playersTask = api.allPlayers()
@@ -170,6 +195,7 @@ final class TrainingDetailViewModel: ObservableObject {
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
         }
+        await materialsTask
     }
 
     func setCancelled(_ cancelled: Bool) async {
@@ -268,6 +294,7 @@ final class TrainingDetailViewModel: ObservableObject {
                 lhs.order < rhs.order || (lhs.order == rhs.order && lhs.id < rhs.id)
             }
             errorMessage = nil
+            await loadMaterials()
             return true
         } catch {
             if !error.isCancellationError { errorMessage = error.localizedDescription }
@@ -282,6 +309,7 @@ final class TrainingDetailViewModel: ObservableObject {
 
         do {
             try await api.deleteTrainingDrill(trainingID: training.id, trainingDrillID: trainingDrillID)
+            await loadMaterials()
             errorMessage = nil
         } catch {
             trainingDrills = previous
@@ -490,6 +518,13 @@ struct TrainingDetailView: View {
                     }
                 )
 
+                TrainingMaterialsCard(
+                    materials: viewModel.materials,
+                    isLoading: viewModel.isLoadingMaterials,
+                    error: viewModel.materialsError,
+                    onRetry: { Task { await viewModel.loadMaterials() } }
+                )
+
                 RolesCard(
                     roles: viewModel.roleEntries,
                     playerByID: playerByID,
@@ -681,6 +716,7 @@ struct TrainingDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .drillDidUpdate)) { notification in
             if let updated = notification.object as? Drill { viewModel.applyUpdatedDrill(updated) }
+            Task { await viewModel.loadMaterials() }
         }
         .task(id: pendingDrillIDToAdd) {
             guard let pendingDrillIDToAdd else { return }
@@ -709,6 +745,9 @@ struct TrainingDetailView: View {
         }
         .navigationDestination(isPresented: selectedDrillTargetPresentation) {
             selectedDrillDestination
+        }
+        .onChange(of: selectedDrillTarget) { target in
+            if target == nil { Task { await viewModel.loadMaterials() } }
         }
         .onChange(of: viewModel.errorMessage) { newValue in
             guard let newValue, !newValue.isEmpty else { return }
@@ -1113,6 +1152,53 @@ private struct TrainingObservationsSheet: View {
                         }
                     }
                     .disabled(isSaving || isSubmitting)
+                }
+            }
+        }
+    }
+}
+
+private struct TrainingMaterialsCard: View {
+    let materials: TrainingMaterialsResponse?
+    let isLoading: Bool
+    let error: String?
+    let onRetry: () -> Void
+
+    var body: some View {
+        DetailCard {
+            SectionHeaderLabel(title: "Matériel", systemImage: "sportscourt")
+            Text("Quantités maximales nécessaires pour les exercices de la séance.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if isLoading {
+                ProgressView("Chargement du matériel…")
+            } else if let error {
+                Text(error).font(.subheadline).foregroundStyle(.secondary)
+                Button("Réessayer", action: onRetry)
+            } else if let materials {
+                if materials.drillCount == 0 {
+                    Text("Ajoutez des exercices pour connaître le matériel nécessaire.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(materials.items) { item in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(item.label).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            if let quantity = item.quantity {
+                                Text("\(quantity)").monospacedDigit()
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    if materials.missingDiagramCount > 0 {
+                        Text(materials.missingDiagramCount == materials.drillCount
+                             ? "Matériel indisponible : les exercices sélectionnés ne disposent pas de schéma exploitable."
+                             : "Liste partielle : certains exercices ne disposent pas de schéma exploitable.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    } else if materials.items.isEmpty {
+                        Text("Aucun matériel indiqué pour les exercices sélectionnés.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
