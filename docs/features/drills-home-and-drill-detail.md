@@ -98,7 +98,8 @@ Constraints: backend scope.
 ## 11. UI Components
 - Drill list.
 - Create drill sheet.
-- Drill detail view uses the exercise name as its native large navigation title, with category, tags and edit action below.
+- Drill detail view shows the full exercise name in a large, bold content heading that wraps freely over multiple lines, including with larger accessibility text. The inline navigation bar keeps the native back button without duplicating the title. Category and tags appear below the heading.
+- Authorized users with the required team scope can open “Modifier l’exercice” from the top-right ellipsis menu (“Actions de l’exercice” for VoiceOver). The existing editor and API behavior are unchanged.
 - After a diagram loads successfully, the separate Matériel card lists its equipment or “Aucun matériel indiqué dans le diagramme.” Empty-material text is hidden during loading/errors.
 
 ## 12. Routes / API / Handlers
@@ -157,7 +158,8 @@ Constraints: backend scope.
 5. API failures are handled without crashes.
 
 ## 21. Test Scenarios
-- Happy path: create drill and view detail.
+- Happy path: create drill and view detail; open the ellipsis menu and select “Modifier l’exercice” to open the existing editor.
+- Presentation: check a 100-character title on a narrow iPhone and with accessibility text sizes; the whole heading wraps without truncation or a duplicate navigation title. Verify native back navigation and that read-only/missing-team contexts hide the edit menu.
 - Permissions: parent does not see drill tab.
 - Errors: create request fails.
 - Edge cases: empty first page; training override present; empty training diagrams falling back to catalog; both sources empty; each request failing independently; catalog fallback edits creating an override.

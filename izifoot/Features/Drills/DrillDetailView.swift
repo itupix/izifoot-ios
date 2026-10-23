@@ -180,8 +180,24 @@ struct DrillDetailView: View {
             .padding(.vertical, 24)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle(viewModel.drill?.title ?? "Exercice")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if teamScopedWritable && viewModel.drill != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            isDrillEditorPresented = true
+                        } label: {
+                            Label("Modifier l’exercice", systemImage: "square.and.pencil")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Actions de l’exercice")
+                }
+            }
+        }
         .task(id: taskIdentifier) {
             await viewModel.load(drillID: drillID, trainingDrillID: trainingDrillID)
         }
@@ -267,6 +283,12 @@ struct DrillDetailView: View {
 
     private func drillHeader(_ drill: Drill) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(drill.title)
+                .font(.largeTitle.bold())
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+
             Text(DrillCategory.label(for: drill.category))
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12)
@@ -278,16 +300,6 @@ struct DrillDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if teamScopedWritable {
-                Button {
-                    isDrillEditorPresented = true
-                } label: {
-                    Label("Modifier la fiche", systemImage: "square.and.pencil")
-                        .frame(minHeight: 44)
-                }
-                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
