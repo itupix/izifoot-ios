@@ -43,7 +43,12 @@ final class DrillDetailViewModel: ObservableObject {
         do {
             let diagrams: [Diagram]
             if let trainingDrillID {
-                diagrams = try await api.trainingDrillDiagrams(trainingDrillID: trainingDrillID)
+                let trainingDiagrams = try await api.trainingDrillDiagrams(trainingDrillID: trainingDrillID)
+                if trainingDiagrams.isEmpty {
+                    diagrams = try await api.drillDiagrams(drillID: drillID)
+                } else {
+                    diagrams = trainingDiagrams
+                }
             } else {
                 diagrams = try await api.drillDiagrams(drillID: drillID)
             }
@@ -63,7 +68,9 @@ final class DrillDetailViewModel: ObservableObject {
         defer { isSavingDiagram = false }
 
         do {
-            if let existingDiagramID = diagram?.id {
+            // Editing a catalog fallback in a session creates an override for that session.
+            let belongsToContext = trainingDrillID == nil || diagram?.trainingDrillId == trainingDrillID
+            if let existingDiagramID = diagram?.id, belongsToContext {
                 diagram = try await api.updateDiagram(id: existingDiagramID, title: "Diagramme", data: data)
             } else if let trainingDrillID {
                 diagram = try await api.createTrainingDrillDiagram(trainingDrillID: trainingDrillID, data: data)
@@ -144,9 +151,13 @@ struct DrillDetailView: View {
                     diagramSection(drill)
 
                     let materials = viewModel.diagram?.data.materialSummary() ?? []
-                    if !materials.isEmpty {
+                    if viewModel.diagram != nil && !viewModel.isLoadingDiagram && viewModel.diagramErrorMessage == nil {
                         DrillDetailCard(title: "Matériel") {
                             VStack(alignment: .leading, spacing: 10) {
+                                if materials.isEmpty {
+                                    Text("Aucun matériel indiqué dans le diagramme.")
+                                        .foregroundStyle(.secondary)
+                                }
                                 ForEach(materials, id: \.self) { material in
                                     Label(material, systemImage: "checkmark.circle")
                                 }
@@ -169,8 +180,8 @@ struct DrillDetailView: View {
             .padding(.vertical, 24)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("Exercice")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(viewModel.drill?.title ?? "Exercice")
+        .navigationBarTitleDisplayMode(.large)
         .task(id: taskIdentifier) {
             await viewModel.load(drillID: drillID, trainingDrillID: trainingDrillID)
         }
@@ -256,11 +267,6 @@ struct DrillDetailView: View {
 
     private func drillHeader(_ drill: Drill) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(drill.title)
-                .font(.title.bold())
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-
             Text(DrillCategory.label(for: drill.category))
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12)
@@ -338,11 +344,7 @@ struct DrillDetailView: View {
                     }
                 }
 
-                if viewModel.diagram?.data.materialSummary().isEmpty == true {
-                    Text("Aucun matériel indiqué dans le diagramme.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if viewModel.diagram == nil {
+                if viewModel.diagram == nil {
                     Text("Ajoutez un diagramme pour identifier le matériel.")
                         .font(.caption)
                         .foregroundStyle(.secondary)

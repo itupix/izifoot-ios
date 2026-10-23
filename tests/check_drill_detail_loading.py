@@ -17,16 +17,21 @@ def block(signature):
     return source[start:cursor]
 
 methods = '\n'.join(block(signature) for signature in (
-    'func load(drillID:', 'func loadDrill(drillID:', 'func loadDiagram(drillID:'))
+    'func load(drillID:', 'func loadDrill(drillID:', 'func loadDiagram(drillID:', 'func saveDiagram('))
 swift = r'''
 import Foundation
 struct Drill { let id: String }
-struct Diagram { let id: String }
+struct Diagram { let id: String; var trainingDrillId: String? = nil }
+struct DiagramData {}
 struct Failure: LocalizedError { var errorDescription: String? { "Unavailable" } }
 extension Error { var isCancellationError: Bool { self is CancellationError } }
 @MainActor final class API {
     var failDrill = false
     var failDiagram = false
+    var failTraining = false
+    var trainingDiagrams: [Diagram] = []
+    var catalogDiagrams: [Diagram] = [Diagram(id: "loaded")]
+    var catalogRequests = 0
     var blockDiagram = false
     var continuation: CheckedContinuation<Void, Never>?
     var route = ""
@@ -36,14 +41,29 @@ extension Error { var isCancellationError: Bool { self is CancellationError } }
     }
     func drillDiagrams(drillID: String) async throws -> [Diagram] {
         route = "source:" + drillID
+        catalogRequests += 1
         if blockDiagram { await withCheckedContinuation { continuation = $0 } }
         if failDiagram { throw Failure() }
-        return [Diagram(id: "loaded")]
+        return catalogDiagrams
     }
     func trainingDrillDiagrams(trainingDrillID: String) async throws -> [Diagram] {
         route = "training:" + trainingDrillID
-        if failDiagram { throw Failure() }
-        return []
+        if failTraining { throw Failure() }
+        return trainingDiagrams
+    }
+}
+extension API {
+    func updateDiagram(id: String, title: String, data: DiagramData) async throws -> Diagram {
+        route = "update:" + id
+        return Diagram(id: id)
+    }
+    func createTrainingDrillDiagram(trainingDrillID: String, data: DiagramData) async throws -> Diagram {
+        route = "createTraining:" + trainingDrillID
+        return Diagram(id: "override", trainingDrillId: trainingDrillID)
+    }
+    func createDrillDiagram(drillID: String, data: DiagramData) async throws -> Diagram {
+        route = "createCatalog:" + drillID
+        return Diagram(id: "created")
     }
 }
 @MainActor final class Model {
@@ -52,6 +72,8 @@ extension Error { var isCancellationError: Bool { self is CancellationError } }
     var diagram: Diagram?
     var isLoading = false
     var isLoadingDiagram = false
+    var isSavingDiagram = false
+    var errorMessage: String?
     var loadErrorMessage: String?
     var diagramErrorMessage: String?
     METHODS
@@ -74,7 +96,32 @@ extension Error { var isCancellationError: Bool { self is CancellationError } }
         precondition(model.diagram?.id == "loaded" && model.diagramErrorMessage == nil)
         precondition(model.api.route == "source:source")
         await model.loadDiagram(drillID: "source", trainingDrillID: "link")
-        precondition(model.api.route == "training:link" && model.diagram == nil && model.diagramErrorMessage == nil)
+        precondition(model.api.route == "source:source" && model.diagram?.id == "loaded" && model.diagramErrorMessage == nil)
+        let catalogCount = model.api.catalogRequests
+        model.api.trainingDiagrams = [Diagram(id: "session", trainingDrillId: "link"), Diagram(id: "older", trainingDrillId: "link")]
+        await model.loadDiagram(drillID: "source", trainingDrillID: "link")
+        precondition(model.diagram?.id == "session" && model.api.catalogRequests == catalogCount)
+        model.api.failTraining = true
+        await model.loadDiagram(drillID: "source", trainingDrillID: "link")
+        precondition(model.diagramErrorMessage == "Unavailable" && model.api.catalogRequests == catalogCount)
+        model.api.failTraining = false
+        model.api.trainingDiagrams = []
+        model.api.failDiagram = true
+        await model.loadDiagram(drillID: "source", trainingDrillID: "link")
+        precondition(model.diagramErrorMessage == "Unavailable")
+        model.api.failDiagram = false
+        model.api.catalogDiagrams = []
+        await model.loadDiagram(drillID: "source", trainingDrillID: "link")
+        precondition(model.diagram == nil && model.diagramErrorMessage == nil)
+        model.api.catalogDiagrams = [Diagram(id: "loaded")]
+        await model.loadDiagram(drillID: "source", trainingDrillID: "link")
+        let savedFallback = await model.saveDiagram(DiagramData(), drillID: "source", trainingDrillID: "link")
+        precondition(savedFallback && model.api.route == "createTraining:link" && model.diagram?.trainingDrillId == "link")
+        let savedOverride = await model.saveDiagram(DiagramData(), drillID: "source", trainingDrillID: "link")
+        precondition(savedOverride && model.api.route == "update:override")
+        await model.loadDiagram(drillID: "source", trainingDrillID: nil)
+        let savedCatalog = await model.saveDiagram(DiagramData(), drillID: "source", trainingDrillID: nil)
+        precondition(savedCatalog && model.api.route == "update:loaded")
         let failing = Model()
         failing.api.failDrill = true
         await failing.load(drillID: "source", trainingDrillID: nil)
@@ -83,7 +130,7 @@ extension Error { var isCancellationError: Bool { self is CancellationError } }
         failing.api.failDrill = false
         await failing.loadDrill(drillID: "source")
         precondition(failing.drill?.id == "source" && failing.loadErrorMessage == nil)
-        print("PASS: exercise appears before diagram completes; independent failures, retries and source/training diagram routes")
+        print("PASS: exercise appears before diagram completes; independent failures/retries, session/catalog precedence, empty sources, safe session overrides and catalog edits")
     }
 }
 '''.replace('METHODS', methods)

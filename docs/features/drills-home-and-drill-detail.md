@@ -85,6 +85,9 @@ Constraints: backend scope.
 - Only authorized sport-edit roles can mutate drills.
 - Pagination uses backend pagination metadata.
 - Detail reload required after some mutations.
+- From a training, `GET /training-drills/:trainingDrillID/diagrams` takes priority. Only a successful empty array triggers `GET /drills/:drillID/diagrams`; errors remain visible and retryable. The first item is the newest by backend `updatedAt` ordering.
+- Editing a catalog fallback from a training creates a training-specific diagram via `POST /training-drills/:trainingDrillID/diagrams`; subsequent edits update that override. The catalog is preserved.
+- Material is derived from the displayed diagram using `DiagramData.materialSummary()`, without a separate equipment API field.
 - Drill-list cache is segmented by active team scope to avoid cross-team leakage after a picker change.
 
 ## 10. State Machine
@@ -95,7 +98,8 @@ Constraints: backend scope.
 ## 11. UI Components
 - Drill list.
 - Create drill sheet.
-- Drill detail view.
+- Drill detail view uses the exercise name as its native large navigation title, with category, tags and edit action below.
+- After a diagram loads successfully, the separate Matériel card lists its equipment or “Aucun matériel indiqué dans le diagramme.” Empty-material text is hidden during loading/errors.
 
 ## 12. Routes / API / Handlers
 - Native navigation in drills module.
@@ -156,7 +160,8 @@ Constraints: backend scope.
 - Happy path: create drill and view detail.
 - Permissions: parent does not see drill tab.
 - Errors: create request fails.
-- Edge cases: empty first page.
+- Edge cases: empty first page; training override present; empty training diagrams falling back to catalog; both sources empty; each request failing independently; catalog fallback edits creating an override.
+- Automated regression: `python3 tests/check_drill_detail_loading.py` exercises the production loading/saving methods and diagram precedence.
 
 ## 22. Technical References
 - `izifoot/Features/Drills/DrillsHomeView.swift`
