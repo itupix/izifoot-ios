@@ -14,9 +14,12 @@ final class ChampionshipStore: ObservableObject {
     func load(teamID: String?) async {
         generation += 1
         let requestGeneration = generation
+        let contextChanged = self.teamID != teamID
         self.teamID = teamID
-        championship = nil
-        canManage = false
+        if contextChanged {
+            championship = nil
+            canManage = false
+        }
         errorMessage = nil
         busy = false
         guard let teamID else { return }
@@ -32,6 +35,10 @@ final class ChampionshipStore: ObservableObject {
             canManage = response.canManage
         } catch {
             guard generation == requestGeneration, !error.isCancellationError else { return }
+            if case APIError.server(status: 403, message: _) = error {
+                championship = nil
+                canManage = false
+            }
             errorMessage = error.localizedDescription
         }
     }
