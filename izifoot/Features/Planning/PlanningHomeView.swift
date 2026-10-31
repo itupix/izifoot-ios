@@ -188,6 +188,7 @@ struct PlanningHomeView: View {
     @AppStorage("izifoot.planning.lastDateSavedOnDay") private var storedPlanningDateSavedOnDay = ""
 
     @StateObject private var viewModel = PlanningHomeViewModel()
+    @StateObject private var championshipStore = ChampionshipStore()
     @State private var selectedDate = PlanningDateHelpers.defaultSelectedDate(
         storedValue: nil,
         storedOnDay: nil
@@ -214,6 +215,7 @@ struct PlanningHomeView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     pageHeader
                     dateHeader
+                    ChampionshipPlanningSection(store: championshipStore, selectedDate: selectedDate)
 
                     PlanningSectionCard(
                         title: "Entraînements",
@@ -544,7 +546,9 @@ struct PlanningHomeView: View {
     }
 
     private var matchdayDayKeys: Set<String> {
-        Set(visibleMatchdays.map { PlanningDateHelpers.storageKey(fromISO8601: $0.date) })
+        let existing = Set(visibleMatchdays.map { PlanningDateHelpers.storageKey(fromISO8601: $0.date) })
+        guard let c = championshipStore.championship, c.status == "VALIDATED" else { return existing }
+        return existing.union(c.ownFixtures.compactMap(\.kickoffAt).map { PlanningDateHelpers.storageKey(fromISO8601: $0) })
     }
 
     private var matchdayLocations: [String] {

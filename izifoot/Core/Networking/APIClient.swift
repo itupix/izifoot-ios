@@ -99,6 +99,10 @@ final class APIClient: APIClientProtocol {
         try await request(path: path, method: "PUT", body: body)
     }
 
+    func patch<T: Decodable, Body: Encodable>(_ path: String, body: Body, responseType: T.Type = T.self) async throws -> T {
+        try await request(path: path, method: "PATCH", body: body)
+    }
+
     func delete<T: Decodable>(_ path: String, responseType: T.Type = T.self) async throws -> T {
         try await request(path: path, method: "DELETE", body: Optional<String>.none)
     }

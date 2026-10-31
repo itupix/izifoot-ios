@@ -16,6 +16,10 @@ struct MainShellView: View {
                 }
                 .tag(AppTab.planning)
 
+            ChampionshipHomeView()
+                .tabItem { Label("Championnat", systemImage: "trophy") }
+                .tag(AppTab.championship)
+
             MessagesView()
                 .tabItem {
                     Label("Messages", systemImage: "message")
