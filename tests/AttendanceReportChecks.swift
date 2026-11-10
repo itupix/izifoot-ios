@@ -53,6 +53,10 @@ private actor ReportAPI: AttendanceReportServing {
         precondition(matrix.matrixPlayers.map(\.displayName) == ["Anaïs", "Émile", "Zoé"])
         precondition(matrix.matrixTrainings(in: "2026-09").map(\.id) == ["early", "late"], "Same-day columns must use actual chronological time and filter month")
         precondition(matrix.matrixTrainings(in: "2026-12").isEmpty)
+        precondition(AttendanceReport.trainingDateLabel("2026-09-01T17:00:00Z", compact: true) == "01/09")
+        precondition(AttendanceReport.trainingDateLabel("2026-09-01T20:00:00+02:00", compact: true) == "01/09", "Same-day sessions remain separate columns with date-only labels")
+        precondition(!AttendanceReport.trainingDateLabel("2026-09-01T17:00:00Z", style: .full).contains(":"), "Accessible date must omit time")
+        precondition(AttendanceReport.trainingDateLabel("2026-08-31T23:00:00Z", compact: true) == "01/09", "Date-only labels preserve Paris calendar date")
         let api = ReportAPI()
         let store = AttendanceReportStore(api: api)
         let old = Task { await store.load(teamID: "old", scope: "old") }
@@ -67,6 +71,6 @@ private actor ReportAPI: AttendanceReportServing {
         precondition(store.report == nil && store.errorMessage != nil && !store.isLoading, "Current-season failure must clear previous report without historical fallback")
         await store.load(teamID: nil, scope: "all")
         precondition(store.report == nil && !store.isLoading)
-        print("PASS: French alphabetical matrix, chronological same-day columns, month filtering, report decoding, null percentages, all statuses, default month, current-season-only requests, stale team request rejection, failure clears old report without fallback, all-team clearing")
+        print("PASS: date-only matrix/detail/accessibility labels, French alphabetical matrix, chronological same-day columns, month filtering, report decoding, null percentages, all statuses, default month, current-season-only requests, stale team request rejection, failure clears old report without fallback, all-team clearing")
     }
 }

@@ -6,12 +6,10 @@ struct AttendanceMonthTable: View {
     let month: String
     @ScaledMetric(relativeTo: .body) private var rowHeight = 68
     @ScaledMetric(relativeTo: .caption) private var headerHeight = 62
-    @ScaledMetric(relativeTo: .caption) private var dateWidth = 86
+    @ScaledMetric(relativeTo: .caption) private var dateWidth = 50
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Faites défiler les dates horizontalement. Le taux sous chaque nom concerne le mois.")
-                .font(.footnote).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 0) {
                 namesColumn
                 ScrollView(.horizontal) {
@@ -57,18 +55,18 @@ struct AttendanceMonthTable: View {
 
     private func dateColumn(_ training: AttendanceReport.Training) -> some View {
         VStack(spacing: 0) {
-            Text(dateHeader(training.date))
+            Text(AttendanceReport.trainingDateLabel(training.date, compact: true))
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .multilineTextAlignment(.center)
                 .frame(width: dateWidth, height: headerHeight)
-                .accessibilityLabel(fullDate(training.date))
+                .accessibilityLabel(AttendanceReport.trainingDateLabel(training.date, style: .full))
                 .accessibilityAddTraits(.isHeader)
             ForEach(report.matrixPlayers) { player in
                 indicator(player.status(for: training.id))
                     .frame(width: dateWidth, height: rowHeight)
                     .overlay(alignment: .top) { Divider() }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(player.displayName), \(fullDate(training.date)), \(player.status(for: training.id)?.label ?? "Statut indisponible")")
+                    .accessibilityLabel("\(player.displayName), \(AttendanceReport.trainingDateLabel(training.date, style: .full)), \(player.status(for: training.id)?.label ?? "Statut indisponible")")
             }
         }
     }
@@ -101,30 +99,7 @@ struct AttendanceMonthTable: View {
                     Text(status.label).font(.caption)
                 }
             }
-            Text("Le gris repose sur les dates connues ; l’historique des changements d’effectif peut être incomplet.")
-                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
-    private func dateHeader(_ value: String) -> String {
-        guard let date = DateFormatters.parseISODate(value) else { return value }
-        let formatter = parisFormatter()
-        formatter.dateFormat = "dd/MM\nHH:mm"
-        return formatter.string(from: date)
-    }
-
-    private func fullDate(_ value: String) -> String {
-        guard let date = DateFormatters.parseISODate(value) else { return value }
-        let formatter = parisFormatter()
-        formatter.dateStyle = .full
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func parisFormatter() -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "fr_FR")
-        formatter.timeZone = TimeZone(identifier: "Europe/Paris")
-        return formatter
-    }
 }

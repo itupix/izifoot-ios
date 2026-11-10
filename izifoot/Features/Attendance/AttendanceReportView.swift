@@ -69,10 +69,6 @@ struct AttendanceReportView<Header: View>: View {
         Section("Présences de la saison") {
             Text("Saison en cours : \(report.season.label) · Effectif actuel").font(.subheadline).foregroundStyle(.secondary)
             metrics(report.summary)
-            Text("Taux = présents ÷ (présents + absents renseignés). Séances à venir, annulées et présences non renseignées exclues.")
-                .font(.footnote).foregroundStyle(.secondary)
-            Text("Les séances commencées sont prises en compte. Les intentions de présence ne comptent pas. Horaires de Paris.")
-                .font(.footnote).foregroundStyle(.secondary)
         }
         if report.players.isEmpty {
             Section { Text("Aucun joueur dans l’effectif actuel.").foregroundStyle(.secondary) }
@@ -130,7 +126,7 @@ struct AttendanceReportView<Header: View>: View {
                     metrics(month.summary)
                     ForEach(report.trainings.filter { $0.month == month.month }) { training in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(trainingDate(training.date))
+                            Text(AttendanceReport.trainingDateLabel(training.date))
                             if let status = player.status(for: training.id) { statusLabel(status) }
                         }.padding(.vertical, 4)
                     }
@@ -142,26 +138,11 @@ struct AttendanceReportView<Header: View>: View {
     }
 
     private func metrics(_ stats: AttendanceReport.Stats) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(stats.percentage).font(.title2.bold())
-            Text("\(stats.presentCount) présences / \(stats.recordedCount) présences ou absences renseignées")
-                .font(.subheadline)
-            Text("\(stats.absentCount) absences · \(stats.unrecordedCount) non renseignées")
-                .font(.footnote).foregroundStyle(.secondary)
-        }.accessibilityElement(children: .combine)
+        Text(stats.percentage).font(.title2.bold())
     }
 
     private func statusLabel(_ status: AttendanceReport.Status) -> some View {
         Label(status.label, systemImage: status.symbol).font(.subheadline).foregroundStyle(.secondary)
     }
 
-    private func trainingDate(_ value: String) -> String {
-        guard let date = DateFormatters.parseISODate(value) else { return value }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "fr_FR")
-        formatter.timeZone = TimeZone(identifier: "Europe/Paris")
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
 }

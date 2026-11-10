@@ -113,6 +113,17 @@ struct AttendanceReport: Decodable {
         return formatter.date(from: value)
     }
 
+    static func trainingDateLabel(_ value: String, style: DateFormatter.Style = .medium, compact: Bool = false) -> String {
+        guard let date = parseTrainingDate(value) else { return String(value.prefix(10)) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.timeZone = TimeZone(identifier: "Europe/Paris")
+        formatter.dateStyle = style
+        formatter.timeStyle = .none
+        if compact { formatter.dateFormat = "dd/MM" }
+        return formatter.string(from: date)
+    }
+
     func defaultMonth(now: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
