@@ -58,7 +58,7 @@ enum PlayerRosterStatus: String {
     case all
 }
 
-final class IzifootAPI {
+final class IzifootAPI: AttendanceReportServing {
     private let client: APIClientProtocol
 
     init(client: APIClientProtocol = APIClient.shared) {
@@ -225,6 +225,11 @@ final class IzifootAPI {
             body: SeasonPayload(seasonConfig: config),
             responseType: Club.self
         )
+    }
+
+    func teamAttendanceReport(teamID: String, seasonID: String) async throws -> AttendanceReport {
+        let path = appendQueryItems(APIRoutes.Teams.attendanceReport(teamID), items: [URLQueryItem(name: "seasonId", value: seasonID)])
+        return try await client.get(path, responseType: AttendanceReport.self)
     }
 
     func teams() async throws -> [Team] {

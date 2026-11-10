@@ -14,6 +14,7 @@ Repository role: Native SwiftUI client consuming backend API contracts and provi
 - `matchday-detail-and-sharing.md`
 - `drills-home-and-drill-detail.md`
 - `players-home-and-player-detail.md`
+- `team-attendance-report.md`
 - `messages-conversations-and-badges.md`
 - `club-home-and-team-management.md`
 - `account-profile-management.md`

@@ -841,6 +841,7 @@ private enum TeamTab: String, CaseIterable, Identifiable {
     case players = "Effectif"
     case tactic = "Tactique"
     case stats = "Stats"
+    case attendance = "Présences"
 
     var id: String { rawValue }
 
@@ -852,6 +853,8 @@ private enum TeamTab: String, CaseIterable, Identifiable {
             return "sportscourt"
         case .stats:
             return "chart.bar"
+        case .attendance:
+            return "checkmark.circle"
         }
     }
 }
@@ -949,6 +952,12 @@ struct PlayersHomeView: View {
                     tacticList
                 case .stats:
                     statsList
+                case .attendance:
+                    AttendanceReportView {
+                        Picker("Vue", selection: $selectedTab) {
+                            ForEach(TeamTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
+                        }.pickerStyle(.segmented)
+                    }
                 }
             }
             .navigationTitle("Mon équipe")
