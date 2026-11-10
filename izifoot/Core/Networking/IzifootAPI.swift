@@ -227,9 +227,8 @@ final class IzifootAPI: AttendanceReportServing {
         )
     }
 
-    func teamAttendanceReport(teamID: String, seasonID: String) async throws -> AttendanceReport {
-        let path = appendQueryItems(APIRoutes.Teams.attendanceReport(teamID), items: [URLQueryItem(name: "seasonId", value: seasonID)])
-        return try await client.get(path, responseType: AttendanceReport.self)
+    func teamAttendanceReport(teamID: String) async throws -> AttendanceReport {
+        try await client.get(APIRoutes.Teams.attendanceReport(teamID), responseType: AttendanceReport.self)
     }
 
     func teams() async throws -> [Team] {

@@ -16,11 +16,9 @@ struct AttendanceReportView<Header: View>: View {
     private var scope: String {
         "\(authStore.me?.id ?? ""):\(teamScopeStore.selectedTeamID ?? "all"):\(teamScopeStore.scopeRevision)"
     }
-    private var taskKey: String { "\(scope):\(store.selectedSeasonID)" }
     private var visibleReport: AttendanceReport? {
         guard let report = store.report,
-              report.teamId == teamScopeStore.selectedTeamID,
-              report.season.id == store.selectedSeasonID else { return nil }
+              report.teamId == teamScopeStore.selectedTeamID, store.reportScope == scope else { return nil }
         return report
     }
 
@@ -34,13 +32,6 @@ struct AttendanceReportView<Header: View>: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                if !store.seasons.isEmpty {
-                    Section {
-                        Picker("Saison", selection: $store.selectedSeasonID) {
-                            ForEach(store.seasons) { season in Text(season.label).tag(season.id) }
-                        }
-                    }
-                }
                 if store.isLoading {
                     Section { ProgressView("Chargement des présences…") }
                 } else if let error = store.errorMessage {
@@ -50,13 +41,11 @@ struct AttendanceReportView<Header: View>: View {
                     }
                 } else if let report = visibleReport {
                     reportContent(report)
-                } else if store.seasons.isEmpty {
-                    Section { Text("Aucune saison disponible.").foregroundStyle(.secondary) }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .task(id: taskKey) { await reload() }
+        .task(id: scope) { await reload() }
         .refreshable { await reload() }
         .onChange(of: scope) { _ in
             selectedPlayerID = ""
@@ -78,13 +67,16 @@ struct AttendanceReportView<Header: View>: View {
 
     @ViewBuilder private func reportContent(_ report: AttendanceReport) -> some View {
         Section("Présences de la saison") {
+            Text("Saison en cours : \(report.season.label) · Effectif actuel").font(.subheadline).foregroundStyle(.secondary)
             metrics(report.summary)
             Text("Taux = présents ÷ (présents + absents renseignés). Séances à venir, annulées et présences non renseignées exclues.")
                 .font(.footnote).foregroundStyle(.secondary)
             Text("Les séances commencées sont prises en compte. Les intentions de présence ne comptent pas. Horaires de Paris.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
-        if report.trainings.isEmpty {
+        if report.players.isEmpty {
+            Section { Text("Aucun joueur dans l’effectif actuel.").foregroundStyle(.secondary) }
+        } else if report.trainings.isEmpty {
             Section { Text("Aucun entraînement pour cette saison.").foregroundStyle(.secondary) }
         } else {
             Section {
@@ -108,7 +100,6 @@ struct AttendanceReportView<Header: View>: View {
         Section("Entraînements") {
             ForEach(report.trainings.filter { $0.month == selectedMonth }) { training in
                 DisclosureGroup {
-                    if report.players.isEmpty { Text("Aucun joueur dans l’effectif.").foregroundStyle(.secondary) }
                     ForEach(report.players) { player in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(player.displayName)
@@ -139,7 +130,6 @@ struct AttendanceReportView<Header: View>: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(player.displayName).foregroundStyle(.primary)
-                            if !player.is_active { Text("Inactif").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         Text(player.summary.percentage)
