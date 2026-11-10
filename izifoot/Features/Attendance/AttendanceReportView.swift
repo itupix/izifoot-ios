@@ -97,23 +97,8 @@ struct AttendanceReportView<Header: View>: View {
             }
             if let month = report.months.first(where: { $0.month == selectedMonth }) { metrics(month.summary) }
         }
-        Section("Entraînements") {
-            ForEach(report.trainings.filter { $0.month == selectedMonth }) { training in
-                DisclosureGroup {
-                    ForEach(report.players) { player in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(player.displayName)
-                            if let status = player.status(for: training.id) { statusLabel(status) }
-                        }.padding(.vertical, 4)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(trainingDate(training.date))
-                        Text(training.status == "CANCELLED" ? "Annulé" : training.includedInRate ? "Séance commencée" : "À venir")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
+        Section("Joueurs × entraînements") {
+            AttendanceMonthTable(report: report, month: selectedMonth)
         }
     }
 

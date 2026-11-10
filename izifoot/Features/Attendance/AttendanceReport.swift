@@ -89,6 +89,30 @@ struct AttendanceReport: Decodable {
     let trainings: [Training]
     let players: [Player]
 
+    var matrixPlayers: [Player] {
+        players.sorted {
+            let order = $0.displayName.compare($1.displayName, options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_FR"))
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
+
+    func matrixTrainings(in month: String) -> [Training] {
+        trainings.filter { $0.month == month }.sorted {
+            let lhs = Self.parseTrainingDate($0.date)
+            let rhs = Self.parseTrainingDate($1.date)
+            if let lhs, let rhs, lhs != rhs { return lhs < rhs }
+            return $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date
+        }
+    }
+
+    private static func parseTrainingDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+
     func defaultMonth(now: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)

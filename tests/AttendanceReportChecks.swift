@@ -28,6 +28,31 @@ private actor ReportAPI: AttendanceReportServing {
             let status = try JSONDecoder().decode(AttendanceReport.Status.self, from: Data("\"\(raw)\"".utf8))
             precondition(!status.label.isEmpty && !status.symbol.isEmpty)
         }
+        var matrixJSON = try JSONSerialization.jsonObject(with: Data(fixture.utf8)) as! [String: Any]
+        let basePlayer = (matrixJSON["players"] as! [[String: Any]])[0]
+        matrixJSON["players"] = ["Zoé", "Émile", "Anaïs"].enumerated().map { index, name -> [String: Any] in
+            var player = basePlayer
+            player["id"] = "p\(index)"
+            player["name"] = "legacy-\(index)"
+            player["first_name"] = name
+            return player
+        }
+        let baseTraining = (matrixJSON["trainings"] as! [[String: Any]])[0]
+        matrixJSON["trainings"] = [
+            ("late", "2026-09-01T20:00:00+02:00", "2026-09"),
+            ("other-month", "2026-10-01T10:00:00Z", "2026-10"),
+            ("early", "2026-09-01T17:00:00Z", "2026-09")
+        ].map { id, date, month -> [String: Any] in
+            var training = baseTraining
+            training["id"] = id
+            training["date"] = date
+            training["month"] = month
+            return training
+        }
+        let matrix = try JSONDecoder().decode(AttendanceReport.self, from: JSONSerialization.data(withJSONObject: matrixJSON))
+        precondition(matrix.matrixPlayers.map(\.displayName) == ["Anaïs", "Émile", "Zoé"])
+        precondition(matrix.matrixTrainings(in: "2026-09").map(\.id) == ["early", "late"], "Same-day columns must use actual chronological time and filter month")
+        precondition(matrix.matrixTrainings(in: "2026-12").isEmpty)
         let api = ReportAPI()
         let store = AttendanceReportStore(api: api)
         let old = Task { await store.load(teamID: "old", scope: "old") }
@@ -42,6 +67,6 @@ private actor ReportAPI: AttendanceReportServing {
         precondition(store.report == nil && store.errorMessage != nil && !store.isLoading, "Current-season failure must clear previous report without historical fallback")
         await store.load(teamID: nil, scope: "all")
         precondition(store.report == nil && !store.isLoading)
-        print("PASS: report decoding, null percentages, all statuses, default month, current-season-only requests, stale team request rejection, failure clears old report without fallback, all-team clearing")
+        print("PASS: French alphabetical matrix, chronological same-day columns, month filtering, report decoding, null percentages, all statuses, default month, current-season-only requests, stale team request rejection, failure clears old report without fallback, all-team clearing")
     }
 }
