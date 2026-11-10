@@ -8,14 +8,20 @@ struct AttendanceMonthTable: View {
     @ScaledMetric(relativeTo: .caption) private var headerHeight = 62
     @ScaledMetric(relativeTo: .caption) private var dateWidth = 50
 
+    @ScaledMetric(relativeTo: .caption) private var percentageWidth = 80
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 0) {
-                namesColumn
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(report.matrixTrainings(in: month)) { training in
-                            dateColumn(training)
+            GeometryReader { geometry in
+                let nameWidth = max(132, geometry.size.width - CGFloat(report.matrixTrainings(in: month).count) * dateWidth - percentageWidth)
+                HStack(alignment: .top, spacing: 0) {
+                    namesColumn.frame(width: nameWidth)
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 0) {
+                            ForEach(report.matrixTrainings(in: month)) { training in
+                                dateColumn(training)
+                            }
+                            percentagesColumn
                         }
                     }
                 }
@@ -30,7 +36,7 @@ struct AttendanceMonthTable: View {
 
     private var namesColumn: some View {
         VStack(spacing: 0) {
-            Text("Joueur\nTaux du mois")
+            Text("Joueur")
                 .lineLimit(3)
                 .font(.caption.weight(.semibold))
                 .frame(maxWidth: .infinity, minHeight: headerHeight, maxHeight: headerHeight, alignment: .leading)
@@ -39,18 +45,32 @@ struct AttendanceMonthTable: View {
             ForEach(report.matrixPlayers) { player in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(player.displayName).font(.subheadline.weight(.medium)).lineLimit(2)
-                    Text(player.months.first { $0.month == month }?.summary.percentage ?? "—")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
                 .padding(.horizontal, 8)
                 .overlay(alignment: .top) { Divider() }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(player.displayName), taux du mois : \(player.months.first { $0.month == month }?.summary.percentage ?? "—")")
+                .accessibilityLabel(player.displayName)
             }
         }
-        .frame(width: 132)
         .background(Color(uiColor: .secondarySystemBackground))
+    }
+
+    private var percentagesColumn: some View {
+        VStack(spacing: 0) {
+            Text("Taux du mois")
+                .font(.caption.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .frame(width: percentageWidth, height: headerHeight)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(report.matrixPlayers) { player in
+                Text(player.months.first { $0.month == month }?.summary.percentage ?? "—")
+                    .font(.subheadline.monospacedDigit())
+                    .frame(width: percentageWidth, height: rowHeight)
+                    .overlay(alignment: .top) { Divider() }
+                    .accessibilityLabel("\(player.displayName), taux du mois : \(player.months.first { $0.month == month }?.summary.percentage ?? "—")")
+            }
+        }
     }
 
     private func dateColumn(_ training: AttendanceReport.Training) -> some View {

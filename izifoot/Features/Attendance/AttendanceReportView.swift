@@ -98,51 +98,14 @@ struct AttendanceReportView<Header: View>: View {
         }
     }
 
-    @ViewBuilder private func playerContent(_ report: AttendanceReport) -> some View {
+    private func playerContent(_ report: AttendanceReport) -> some View {
         Section("Joueurs") {
-            TextField("Rechercher un joueur", text: $query)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            let filtered = report.players.filter { query.isEmpty || $0.displayName.localizedStandardContains(query) }
-            if filtered.isEmpty { Text("Aucun joueur trouvé.").foregroundStyle(.secondary) }
-            ForEach(filtered) { player in
-                Button {
-                    selectedPlayerID = player.id
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(player.displayName).foregroundStyle(.primary)
-                        }
-                        Spacer()
-                        Text(player.summary.percentage)
-                        if selectedPlayerID == player.id { Image(systemName: "checkmark.circle.fill") }
-                    }
-                }.accessibilityAddTraits(selectedPlayerID == player.id ? .isSelected : [])
-            }
-        }
-        if let player = report.players.first(where: { $0.id == selectedPlayerID }) {
-            Section("\(player.displayName) · Saison") { metrics(player.summary) }
-            ForEach(player.months) { month in
-                Section(AttendanceReport.monthLabel(month.month)) {
-                    metrics(month.summary)
-                    ForEach(report.trainings.filter { $0.month == month.month }) { training in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(AttendanceReport.trainingDateLabel(training.date))
-                            if let status = player.status(for: training.id) { statusLabel(status) }
-                        }.padding(.vertical, 4)
-                    }
-                }
-            }
-        } else if !report.players.isEmpty {
-            Section { Text("Choisissez un joueur pour consulter le détail de ses présences.").foregroundStyle(.secondary) }
+            AttendancePlayerSplitView(report: report, selectedPlayerID: $selectedPlayerID, query: $query)
         }
     }
 
     private func metrics(_ stats: AttendanceReport.Stats) -> some View {
         Text(stats.percentage).font(.title2.bold())
-    }
-
-    private func statusLabel(_ status: AttendanceReport.Status) -> some View {
-        Label(status.label, systemImage: status.symbol).font(.subheadline).foregroundStyle(.secondary)
     }
 
 }
