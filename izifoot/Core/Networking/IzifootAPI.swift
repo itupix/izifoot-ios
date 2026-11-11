@@ -227,6 +227,11 @@ final class IzifootAPI: AttendanceReportServing {
         )
     }
 
+    func teamAttendancePDF(teamID: String, month: String) async throws -> Data {
+        let path = appendQueryItems(APIRoutes.Teams.attendanceReport(teamID) + "/pdf", items: [URLQueryItem(name: "month", value: month)])
+        return try await client.get(path, responseType: Data.self)
+    }
+
     func teamAttendanceReport(teamID: String) async throws -> AttendanceReport {
         try await client.get(APIRoutes.Teams.attendanceReport(teamID), responseType: AttendanceReport.self)
     }

@@ -12,6 +12,10 @@ final class StubProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         precondition(request.httpMethod == "GET")
+        if request.url?.path.contains("attendance-report") == true {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            precondition(query == [URLQueryItem(name: "month", value: "2026-11")])
+        }
         precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
         precondition(request.value(forHTTPHeaderField: "X-Team-Id") == "team")
         precondition(request.value(forHTTPHeaderField: "Accept") == "application/pdf")
@@ -30,6 +34,8 @@ final class StubProtocol: URLProtocol {
         let client = APIClient(session: URLSession(configuration: config), tokenStore: store)
         let data = try await client.get("/trainings/id/summary.pdf?timeZone=Europe%2FParis", responseType: Data.self)
         precondition(data == StubProtocol.body)
+        let monthly = try await client.get("/teams/team/attendance-report/pdf?month=2026-11", responseType: Data.self)
+        precondition(monthly == data)
         let versioned = try await client.get("/trainings/id/summary.pdf", responseType: PDFDownload.self)
         precondition(versioned.data == data && versioned.version == String(repeating: "a", count: 64))
         StubProtocol.mime = "application/json"

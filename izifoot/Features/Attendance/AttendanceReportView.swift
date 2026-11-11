@@ -4,6 +4,8 @@ struct AttendanceReportView<Header: View>: View {
     @EnvironmentObject private var teamScopeStore: TeamScopeStore
     @EnvironmentObject private var authStore: AuthStore
     @StateObject private var store = AttendanceReportStore(api: IzifootAPI())
+    @StateObject private var pdfStore = AttendancePDFStore()
+    @State private var isPDFPresented = false
     @State private var mode = Mode.month
     @State private var selectedMonth = ""
     @State private var selectedPlayerID = ""
@@ -16,6 +18,7 @@ struct AttendanceReportView<Header: View>: View {
     private var scope: String {
         "\(authStore.me?.id ?? ""):\(teamScopeStore.selectedTeamID ?? "all"):\(teamScopeStore.scopeRevision)"
     }
+    private var pdfScope: String { "\(scope):\(authStore.me?.clubId ?? ""):\(authStore.me?.role.rawValue ?? ""):\(mode.rawValue):\(selectedMonth)" }
     private var visibleReport: AttendanceReport? {
         guard let report = store.report,
               report.teamId == teamScopeStore.selectedTeamID, store.reportScope == scope else { return nil }
@@ -47,6 +50,16 @@ struct AttendanceReportView<Header: View>: View {
         .listStyle(.insetGrouped)
         .task(id: scope) { await reload() }
         .refreshable { await reload() }
+        .onChange(of: pdfScope) { _ in
+            isPDFPresented = false
+            pdfStore.invalidate()
+        }
+        .onDisappear { pdfStore.invalidate() }
+        .sheet(isPresented: $isPDFPresented, onDismiss: { pdfStore.invalidate() }) {
+            if let preview = pdfStore.preview {
+                PDFPreviewSheet(url: preview.url, document: preview.document, title: "Présences · \(AttendanceReport.monthLabel(selectedMonth))")
+            }
+        }
         .onChange(of: scope) { _ in
             selectedPlayerID = ""
             selectedMonth = ""
@@ -86,16 +99,36 @@ struct AttendanceReportView<Header: View>: View {
 
     @ViewBuilder private func monthlyContent(_ report: AttendanceReport) -> some View {
         Section {
-            Picker("Mois", selection: $selectedMonth) {
-                ForEach(report.months) { month in
-                    Text(AttendanceReport.monthLabel(month.month)).tag(month.month)
+            HStack {
+                Picker("Mois", selection: $selectedMonth) {
+                    ForEach(report.months) { month in
+                        Text(AttendanceReport.monthLabel(month.month)).tag(month.month)
+                    }
                 }
+                Button(pdfStore.isLoading ? "Préparation…" : "Rapport PDF") {
+                    Task { await preparePDF() }
+                }
+                .buttonStyle(.bordered)
+                .disabled(pdfStore.isLoading || selectedMonth.isEmpty)
+            }
+            if let message = pdfStore.errorMessage {
+                Text(message).font(.footnote).foregroundStyle(.red)
             }
             if let month = report.months.first(where: { $0.month == selectedMonth }) { metrics(month.summary) }
         }
         Section("Joueurs × entraînements") {
             AttendanceMonthTable(report: report, month: selectedMonth)
         }
+    }
+
+    private func preparePDF() async {
+        guard mode == .month, let teamID = teamScopeStore.selectedTeamID, !selectedMonth.isEmpty else { return }
+        let requestedScope = pdfScope
+        let month = selectedMonth
+        await pdfStore.load(month: month, download: {
+            try await IzifootAPI().teamAttendancePDF(teamID: teamID, month: month)
+        }, isCurrent: { pdfScope == requestedScope && authStore.me?.role.canEditSportData == true })
+        if pdfScope == requestedScope, pdfStore.preview != nil { isPDFPresented = true }
     }
 
     private func playerContent(_ report: AttendanceReport) -> some View {

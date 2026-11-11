@@ -22,3 +22,23 @@ swiftc -module-cache-path /private/tmp/attendance-swift-cache izifoot/Features/A
 ```
 
 Validation completed: standalone checks passed for decoding, all six statuses, null percentages, default month selection, French alphabetical matrix rows, actual chronological same-day columns, date-only labels including accessibility and Paris midnight boundaries, month filtering, current-season-only requests, late previous-team response rejection, current-season failures clearing old data without fallback, and all-team clearing. Debug iOS Simulator build passed with Xcode (`CODE_SIGNING_ALLOWED=NO`). UX source review passed; live rendering was not exercised. Manual acceptance: current season label with no selector, monthly matrix, alphabetical names, chronological date-only headers including same-day sessions, full-width table with fluid player names and aligned trailing rates, compact fixed date column widths, left-side player search/selection and right-side detail cards, percentage-only summaries, horizontal scrolling with pinned player names, accented player search, exclusion of inactive players, every attendance state, null percentage, weighted season totals, empty season, failed request/retry, rapid team switching and all-team selection. Check VoiceOver and narrow iPhone/Dynamic Type for the four Mon équipe segments. Matrix rows and headers share scaled heights across fixed and scrolling columns to preserve alignment with Dynamic Type. Runtime visual acceptance with live data remains required.
+
+
+## Monthly PDF
+
+**Rapport PDF** appears beside the month selector only in **Par mois**. It calls authenticated `GET /teams/:teamId/attendance-report/pdf?month=YYYY-MM`, without season selection. The same server-generated monthly PDF is used on web and iOS; a valid empty month can return a PDF. Backend errors: 400 missing/malformed/outside-season month, 403 role, 404 team/club/season, 401 expired authentication and 500 unexpected failure. Response is `application/pdf`, attachment `presences-YYYY-MM.pdf`, `Cache-Control: private,no-store`.
+
+During download the button reads **Préparation…** and rejects duplicate taps. Errors leave the button available to retry. Existing authenticated PDF networking bypasses URL caching and validates content type and signature. The export store additionally parses the document and requires a page before creating a unique private temporary file. It does not use the training summary’s durable cache. Month/team/mode/account changes invalidate late responses and dismiss stale previews; dismissing or leaving deletes temporary exports.
+
+The existing training native PDF preview and sharing implementation is extracted into reusable `PDFPreviewSheet` with a configurable title; training presentation behavior remains unchanged. Monthly exports open that same sheet with **Présences · [mois]**, including the native share action.
+
+PDF state checks:
+
+```sh
+swiftc -module-cache-path /private/tmp/attendance-swift-cache izifoot/Features/Attendance/AttendancePDFStore.swift tests/AttendancePDFChecks.swift -o /private/tmp/attendance-pdf-checks
+/private/tmp/attendance-pdf-checks
+swiftc -module-cache-path /private/tmp/attendance-swift-cache izifoot/Core/Networking/APIClient.swift tests/TrainingSummaryDownloadChecks.swift -o /private/tmp/attendance-download-checks
+/private/tmp/attendance-download-checks
+```
+
+Checks cover valid preview/filename, repeat taps, late previous-scope response rejection, session-current rejection, corrupt PDFs, retries, temporary-file deletion, monthly query, authenticated headers and cache bypass. Simulator build and source UX review are required; actual device preview/sharing and rendered server PDF remain manual acceptance checks.
